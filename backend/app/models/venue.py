@@ -1,9 +1,10 @@
 """Venue and VenueProfile models."""
+
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ARRAY, JSON, String, Text, ForeignKey, DateTime, Float, Integer
+from sqlalchemy import ARRAY, JSON, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,23 +35,19 @@ class Venue(Base):
     # Location
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
-    address: Mapped[Optional[str]] = mapped_column(Text)
+    address: Mapped[str | None] = mapped_column(Text)
 
     # Ratings and pricing
-    rating: Mapped[Optional[float]] = mapped_column(Float)
-    price_level: Mapped[Optional[int]] = mapped_column(Integer)  # 0-4 scale
+    rating: Mapped[float | None] = mapped_column(Float)
+    price_level: Mapped[int | None] = mapped_column(Integer)  # 0-4 scale
 
     # Hours (stored as JSON for flexibility)
-    hours: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    raw_hours: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    hours: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_hours: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
-    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.utcnow,
@@ -90,9 +87,7 @@ class VenueProfile(Base):
 
     # Attribute scores (0-1 scale for each attribute)
     # Example: {"quiet": 0.85, "laptop_friendly": 0.72, "romantic": 0.15, ...}
-    attribute_scores: Mapped[dict[str, float]] = mapped_column(
-        JSON, default=dict, nullable=False
-    )
+    attribute_scores: Mapped[dict[str, float]] = mapped_column(JSON, default=dict, nullable=False)
 
     # Evidence snippets (top 1-3 snippets per attribute)
     # Example: {"quiet": ["Great for studying", "Very peaceful atmosphere"], ...}
@@ -101,15 +96,11 @@ class VenueProfile(Base):
     )
 
     # Optional embedding reference (for vector search)
-    embedding_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Timestamps
-    profiled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow
-    )
-    expires_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    profiled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     venue: Mapped["Venue"] = relationship("Venue", back_populates="profile")

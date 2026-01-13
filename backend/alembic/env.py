@@ -1,4 +1,5 @@
 """Alembic environment configuration."""
+
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -6,13 +7,13 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.config import settings
 
 # Import your app's Base and models
 from app.db.base import Base
-from app.config import settings
 
 # Import all models so Alembic can detect them
-from app.models import Venue, VenueProfile, UserEvent  # noqa: F401
+from app.models import UserEvent, Venue, VenueProfile  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -78,7 +79,7 @@ async def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section, {})
     # Use the database URL from settings (async format)
     configuration["sqlalchemy.url"] = settings.database_url
-    
+
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",

@@ -1,4 +1,5 @@
 """SQLAlchemy database session setup."""
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -18,6 +19,7 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
 
 async def get_db() -> AsyncSession:
     """Dependency for getting database session."""
