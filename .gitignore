@@ -1,1 +1,44 @@
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Testing
+**/.pytest_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Linting/Formatting
+**/.ruff_cache/
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# OS
+**/.DS_Store
+.DS_Store
+
+# Alembic (explicit, though __pycache__ covers most)
+alembic/__pycache__/
+alembic/versions/__pycache__/
+
+# Environment
+venv/
+env/
+ENV/
+.venv/
