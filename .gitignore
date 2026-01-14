@@ -42,3 +42,6 @@ venv/
 env/
 ENV/
 .venv/
+
+# Exclude the frontend CI for now
+**/frontend-ci.yml
