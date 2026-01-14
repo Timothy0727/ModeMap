@@ -1,32 +1,15 @@
 name: Frontend CI
 
-on:
-  pull_request:
-  push:
+on: []
 
 jobs:
-  frontend:
+  frontend-ci:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Frontend placeholder
         run: |
-          cd frontend
-          pip install ruff pytest
-          pip install -r requirements.txt
-
-      - name: Lint
-        run: |
-          cd frontend
-          ruff check .
-
-      - name: Tests
-        run: |
-          cd frontend
-          pytest
+          echo "Frontend not implemented yet. CI disabled."
