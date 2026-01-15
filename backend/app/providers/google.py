@@ -1,8 +1,6 @@
 """Google Places API client using Places API (New)."""
-import json
+
 import logging
-import time
-from typing import Optional
 
 import httpx
 
@@ -11,12 +9,13 @@ from app.schemas.venue import VenueCreate
 
 logger = logging.getLogger(__name__)
 
+
 class GooglePlacesClient:
     """Client for Google Places API (New) using REST API with API key."""
 
     BASE_URL = "https://places.googleapis.com/v1/places:searchNearby"
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """Initialize Google Places client.
 
         Args:
@@ -33,8 +32,8 @@ class GooglePlacesClient:
         radius_m: int = 1000,
         max_results: int = 20,
         open_now: bool = False,
-        price_level: Optional[int] = None,
-        rank_preference:Optional[str] = None,
+        price_level: int | None = None,
+        rank_preference: str | None = None,
     ) -> list[VenueCreate]:
         """Search for nearby places using Google Places API.
 
@@ -94,7 +93,7 @@ class GooglePlacesClient:
                 4: "PRICE_LEVEL_VERY_EXPENSIVE",
             }
             body["priceLevel"] = price_map[price_level]
-        
+
         if rank_preference:
             if rank_preference not in ["DISTANCE", "POPULARITY"]:
                 raise ValueError("rank_preference must be 'DISTANCE' or 'POPULARITY'")
@@ -144,7 +143,7 @@ class GooglePlacesClient:
         logger.info(f"Found {len(venues)} venues from Google Places API")
         return venues
 
-    def _normalize_place(self, place: dict) -> Optional[VenueCreate]:
+    def _normalize_place(self, place: dict) -> VenueCreate | None:
         """Normalize Google Places API response to VenueCreate schema.
 
         Args:
@@ -179,11 +178,9 @@ class GooglePlacesClient:
                 "food",
                 "store",
             }
-            categories = [
-                t.replace("_", " ").title()
-                for t in types
-                if t not in excluded_types
-            ][:5]  # Limit to 5 categories
+            categories = [t.replace("_", " ").title() for t in types if t not in excluded_types][
+                :5
+            ]  # Limit to 5 categories
 
             # Map price level from Google format to 0-4 scale
             price_level = None
