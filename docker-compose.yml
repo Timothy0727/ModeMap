@@ -31,6 +31,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+psycopg://modemap:modemap@postgres:5432/modemap
       REDIS_URL: redis://redis:6379/0

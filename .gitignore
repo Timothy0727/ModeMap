@@ -31,9 +31,7 @@ htmlcov/
 
 # OS
 **/.DS_Store
-.DS_Store
-
-# Alembic (explicit, though __pycache__ covers most)
+.DS_Store# Alembic (explicit, though __pycache__ covers most)
 alembic/__pycache__/
 alembic/versions/__pycache__/
 
@@ -42,3 +40,5 @@ venv/
 env/
 ENV/
 .venv/
+
+**/client-secret.json
