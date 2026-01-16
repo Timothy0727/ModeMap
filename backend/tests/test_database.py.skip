@@ -1,0 +1,277 @@
+"""Unit tests for database models and operations."""
+import uuid
+from datetime import datetime
+
+import pytests
+from sqlalchemy import select
+
+from app.models.user_event import EventType, Mode, UserEvent
+from app.models.venue import Venue, VenueProfile
+
+
+class TestVenueModel:
+    """Tests for Venue model."""
+
+    async def test_create_venue(self, test_session, sample_venue_data):
+        """Test creating a venue in the database."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+        await test_session.refresh(venue)
+
+        assert venue.id is not None
+        assert venue.name == "Blue Bottle Coffee"
+        assert venue.provider_id == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+        assert venue.lat == 37.7749
+        assert venue.categories == ["cafe", "coffee_shop"]
+        assert isinstance(venue.created_at, datetime)
+        assert isinstance(venue.updated_at, datetime)
+
+    async def test_venue_unique_provider_id(self, test_session, sample_venue_data):
+        """Test that provider_id must be unique."""
+        venue1 = Venue(**sample_venue_data)
+        test_session.add(venue1)
+        await test_session.commit()
+
+        # Try to create another venue with the same provider_id
+        venue2 = Venue(**sample_venue_data)
+        test_session.add(venue2)
+
+        with pytest.raises(Exception):  # Should raise IntegrityError
+            await test_session.commit()
+
+    async def test_get_venue_by_id(self, test_session, sample_venue_data):
+        """Test retrieving a venue by ID."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+        venue_id = venue.id
+
+        # Retrieve venue
+        result = await test_session.get(Venue, venue_id)
+        assert result is not None
+        assert result.id == venue_id
+        assert result.name == "Blue Bottle Coffee"
+
+    async def test_update_venue(self, test_session, sample_venue_data):
+        """Test updating a venue."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+        original_updated_at = venue.updated_at
+
+        # Update venue
+        venue.name = "Updated Coffee Shop"
+        venue.rating = 4.8
+        await test_session.commit()
+        await test_session.refresh(venue)
+
+        assert venue.name == "Updated Coffee Shop"
+        assert venue.rating == 4.8
+        assert venue.updated_at > original_updated_at
+
+    async def test_delete_venue(self, test_session, sample_venue_data):
+        """Test deleting a venue."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+        venue_id = venue.id
+
+        # Delete venue
+        await test_session.delete(venue)
+        await test_session.commit()
+
+        # Verify deleted
+        result = await test_session.get(Venue, venue_id)
+        assert result is None
+
+    async def test_venue_query_by_provider_id(self, test_session, sample_venue_data):
+        """Test querying venue by provider_id."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        # Query by provider_id
+        stmt = select(Venue).where(Venue.provider_id == sample_venue_data["provider_id"])
+        result = await test_session.execute(stmt)
+        found_venue = result.scalar_one()
+
+        assert found_venue.id == venue.id
+        assert found_venue.provider_id == sample_venue_data["provider_id"]
+
+
+class TestVenueProfileModel:
+    """Tests for VenueProfile model."""
+
+    async def test_create_venue_profile(self, test_session, sample_venue_data):
+        """Test creating a venue profile."""
+        # First create a venue
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        # Create profile
+        profile = VenueProfile(
+            venue_id=venue.id,
+            attribute_scores={"quiet": 0.85, "laptop_friendly": 0.72},
+            evidence_snippets={"quiet": ["Great for studying"], "laptop_friendly": ["Has outlets"]},
+        )
+        test_session.add(profile)
+        await test_session.commit()
+        await test_session.refresh(profile)
+
+        assert profile.id is not None
+        assert profile.venue_id == venue.id
+        assert "quiet" in profile.attribute_scores
+        assert profile.attribute_scores["quiet"] == 0.85
+        assert isinstance(profile.profiled_at, datetime)
+
+    async def test_venue_profile_relationship(self, test_session, sample_venue_data):
+        """Test relationship between Venue and VenueProfile."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        profile = VenueProfile(
+            venue_id=venue.id,
+            attribute_scores={"quiet": 0.85},
+            evidence_snippets={"quiet": ["Great for studying"]},
+        )
+        test_session.add(profile)
+        await test_session.commit()
+
+        # Test relationship from venue to profile
+        await test_session.refresh(venue)
+        assert venue.profile is not None
+        assert venue.profile.id == profile.id
+
+        # Test relationship from profile to venue
+        assert profile.venue.id == venue.id
+        assert profile.venue.name == "Blue Bottle Coffee"
+
+    async def test_venue_profile_cascade_delete(self, test_session, sample_venue_data):
+        """Test that deleting a venue also deletes its profile."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        profile = VenueProfile(
+            venue_id=venue.id,
+            attribute_scores={"quiet": 0.85},
+            evidence_snippets={"quiet": ["Great for studying"]},
+        )
+        test_session.add(profile)
+        await test_session.commit()
+        profile_id = profile.id
+
+        # Delete venue
+        await test_session.delete(venue)
+        await test_session.commit()
+
+        # Verify profile is also deleted
+        result = await test_session.get(VenueProfile, profile_id)
+        assert result is None
+
+    async def test_venue_profile_unique_venue_id(self, test_session, sample_venue_data):
+        """Test that each venue can only have one profile."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        # Create first profile
+        profile1 = VenueProfile(
+            venue_id=venue.id,
+            attribute_scores={"quiet": 0.85},
+            evidence_snippets={"quiet": ["Great for studying"]},
+        )
+        test_session.add(profile1)
+        await test_session.commit()
+
+        # Try to create second profile for same venue
+        profile2 = VenueProfile(
+            venue_id=venue.id,
+            attribute_scores={"romantic": 0.5},
+            evidence_snippets={"romantic": ["Nice ambiance"]},
+        )
+        test_session.add(profile2)
+
+        with pytest.raises(Exception):  # Should raise IntegrityError
+            await test_session.commit()
+
+
+class TestUserEventModel:
+    """Tests for UserEvent model."""
+
+    async def test_create_user_event(self, test_session, sample_venue_data):
+        """Test creating a user event."""
+        # Create a venue first
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        event = UserEvent(
+            user_id="user123",
+            event_type=EventType.CLICK,
+            venue_id=venue.id,
+            mode=Mode.WORK,
+            query_context={"lat": 37.7749, "lng": -122.4194, "radius": 1000},
+        )
+        test_session.add(event)
+        await test_session.commit()
+        await test_session.refresh(event)
+
+        assert event.id is not None
+        assert event.user_id == "user123"
+        assert event.event_type == EventType.CLICK
+        assert event.mode == Mode.WORK
+        assert event.venue_id == venue.id
+        assert event.query_context["lat"] == 37.7749
+        assert isinstance(event.created_at, datetime)
+
+    async def test_user_event_optional_fields(self, test_session):
+        """Test creating user event with minimal required fields."""
+        event = UserEvent(
+            event_type=EventType.IMPRESSION,
+        )
+        test_session.add(event)
+        await test_session.commit()
+        await test_session.refresh(event)
+
+        assert event.id is not None
+        assert event.user_id is None
+        assert event.venue_id is None
+        assert event.mode is None
+        assert event.query_context is None
+
+    async def test_user_event_query_by_user(self, test_session, sample_venue_data):
+        """Test querying events by user_id."""
+        venue = Venue(**sample_venue_data)
+        test_session.add(venue)
+        await test_session.commit()
+
+        # Create multiple events for same user
+        event1 = UserEvent(
+            user_id="user123",
+            event_type=EventType.CLICK,
+            venue_id=venue.id,
+        )
+        event2 = UserEvent(
+            user_id="user123",
+            event_type=EventType.IMPRESSION,
+            venue_id=venue.id,
+        )
+        event3 = UserEvent(
+            user_id="user456",
+            event_type=EventType.CLICK,
+            venue_id=venue.id,
+        )
+        test_session.add_all([event1, event2, event3])
+        await test_session.commit()
+
+        # Query events for user123
+        stmt = select(UserEvent).where(UserEvent.user_id == "user123")
+        result = await test_session.execute(stmt)
+        events = result.scalars().all()
+
+        assert len(events) == 2
+        assert all(e.user_id == "user123" for e in events)

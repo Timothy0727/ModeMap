@@ -1,0 +1,96 @@
+# Alembic Database Migrations
+
+Alembic is configured for async SQLAlchemy with PostgreSQL. This directory contains migration scripts for the ModeMap database schema.
+
+## Current Status
+
+**Step 1 Complete:** Initial migration created with core data models:
+- `venues` - Core venue entity from places provider
+- `venue_profiles` - Enriched venue attributes (for future enrichment)
+- `user_events` - User interaction telemetry (for future personalization)
+
+## Migration Files
+
+- `versions/f99aa361bd09_initial_migration.py` - Initial schema creation
+
+## Quick Start
+
+### Apply Migrations
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+### Create New Migration
+
+After modifying models in `app/models/`:
+
+```bash
+cd backend
+alembic revision --autogenerate -m "Description of changes"
+alembic upgrade head
+```
+
+## Common Commands
+
+- **Apply all pending migrations:** `alembic upgrade head`
+- **Rollback one migration:** `alembic downgrade -1`
+- **Show current revision:** `alembic current`
+- **Show migration history:** `alembic history`
+- **Create empty migration:** `alembic revision -m "description"`
+- **Auto-generate from models:** `alembic revision --autogenerate -m "description"`
+
+## Database Models
+
+### Venue
+- Primary key: UUID
+- Provider identification: `provider_id`, `provider_name`
+- Location: `lat`, `lng`, `address`
+- Details: `name`, `categories` (ARRAY), `rating`, `price_level`
+- Hours: `hours` (JSON), `raw_hours` (TEXT)
+- Timestamps: `created_at`, `updated_at`, `last_seen_at`
+
+### VenueProfile
+- Foreign key: `venue_id` → `venues.id` (CASCADE delete)
+- Attributes: `attribute_scores` (JSON), `evidence_snippets` (JSON)
+- Optional: `embedding_ref` (for future vector search)
+- Timestamps: `profiled_at`, `expires_at`
+
+### UserEvent
+- Primary key: UUID
+- User tracking: `user_id` (nullable for anonymous)
+- Event data: `event_type`, `venue_id`, `mode`
+- Context: `query_context` (JSON)
+- Timestamp: `created_at`
+
+## Configuration
+
+- **Config file:** `alembic.ini` (in backend root)
+- **Environment script:** `alembic/env.py`
+- **Database URL:** Loaded from `app.config.settings.database_url`
+- **Models imported:** All models from `app.models` are auto-imported
+
+## Troubleshooting
+
+### Models Not Detected
+- Ensure models are imported in `alembic/env.py`
+- Check that `app.models.__init__.py` exports all models
+
+### Database Connection Issues
+- Verify `DATABASE_URL` in `.env` or `app/config.py`
+- Ensure PostgreSQL container is running: `docker-compose up -d postgres`
+- Check port mapping (default: `localhost:5433`)
+
+### Async Errors
+- Alembic is configured for async SQLAlchemy
+- Use `alembic upgrade head` (not sync methods)
+- Ensure `psycopg` (async driver) is installed
+
+## Next Steps (Step 2+)
+
+- Additional migrations will be added as new features require schema changes
+- Future migrations may include:
+  - Indexes for performance
+  - Additional columns for enrichment data
+  - Vector search support (pgvector extension)
