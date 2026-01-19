@@ -4,7 +4,7 @@ ModeMap is a **mode-aware nearby places recommender** that helps users find the 
 
 Instead of returning a generic list of nearby venues, ModeMap lets users choose a **mode** (e.g. Work, Date, Quick Bite, Budget) and re-ranks places accordingly.
 
-This repository currently contains **Step 0: Project setup + scope lock**.
+This repository currently contains **Step 1: Core data model + backend skeleton** (completed).
 
 ---
 
@@ -26,22 +26,23 @@ All ranking logic is deterministic and rule-based in early stages.
 
 ---
 
-## Tech Stack (Step 0)
+## Tech Stack
 
 ### Backend
 - Python 3.11
 - FastAPI
-- PostgreSQL
-- Redis
+- PostgreSQL (with SQLAlchemy async)
+- Redis (configured, caching to be implemented)
+- Alembic (database migrations)
 - Docker + Docker Compose
 
-### Frontend (planned)
+### Frontend (Step 2 - in progress)
 - Next.js
 - Mapbox GL JS
 
-### External APIs (chosen, not yet integrated)
-- Google Places API
-- Mapbox
+### External APIs
+- ✅ Google Places API (New) - integrated
+- Mapbox (to be integrated in Step 2)
 
 ### Tooling
 - Ruff (linting + formatting)
@@ -50,18 +51,33 @@ All ranking logic is deterministic and rule-based in early stages.
 
 ---
 
-## Repository Structure (current)
+## Repository Structure
 
 ```text
 .
 ├── backend/
 │   ├── app/
-│   │   └── main.py
-│   ├── tests/
+│   │   ├── main.py              # FastAPI app with test endpoints
+│   │   ├── config.py            # Pydantic settings
+│   │   ├── db/                  # Database setup
+│   │   │   ├── base.py          # SQLAlchemy Base
+│   │   │   └── session.py       # Async session factory
+│   │   ├── models/              # SQLAlchemy models
+│   │   │   ├── venue.py         # Venue + VenueProfile
+│   │   │   └── user_event.py    # UserEvent
+│   │   ├── schemas/             # Pydantic schemas
+│   │   │   └── venue.py         # Request/response schemas
+│   │   └── providers/           # External API providers
+│   │       └── google.py        # Google Places API client
+│   ├── alembic/                 # Database migrations
+│   │   └── versions/            # Migration files
+│   ├── tests/                   # Unit tests
+│   │   ├── test_schemas.py      # Schema validation tests
+│   │   └── test_google_places.py # Provider integration tests
 │   ├── pyproject.toml
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/
+├── frontend/                    # Step 2 - in progress
 ├── .github/
 │   └── workflows/
 │       └── backend-ci.yml
@@ -81,10 +97,18 @@ All ranking logic is deterministic and rule-based in early stages.
 - [x] Backend health + hello endpoints
 - [x] Linting, testing, and CI configured
 
-### ⏳ Step 1 — Core data model + backend skeleton
-- [ ] In progress
+### ✅ Step 1 — Core data model + backend skeleton
+- [x] Database models (Venue, VenueProfile, UserEvent)
+- [x] Alembic migrations configured and initial migration created
+- [x] Pydantic schemas for API request/response
+- [x] Google Places API (New) client implemented
+- [x] Test endpoint for provider integration (`/test/google-places`)
+- [x] Unit tests for schemas and provider client
+- [x] SQLAlchemy async session setup
+- [ ] Redis caching (deferred to later steps)
+- [ ] Geohash utilities (deferred to caching implementation)
 
-### 🔜 Step 2 — MVP UI: Map + list + mode selector
+### ⏳ Step 2 — MVP UI: Map + list + mode selector (in progress)
 
 ### 🔜 Step 3 — Real nearby retrieval + caching
 

@@ -1,0 +1,15 @@
+name: Frontend CI
+
+on: []
+
+jobs:
+  frontend-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Frontend placeholder
+        run: |
+          echo "Frontend not implemented yet. CI disabled."
