@@ -57,27 +57,41 @@ All ranking logic is deterministic and rule-based in early stages.
 .
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI app with test endpoints
-│   │   ├── config.py            # Pydantic settings
-│   │   ├── db/                  # Database setup
-│   │   │   ├── base.py          # SQLAlchemy Base
-│   │   │   └── session.py       # Async session factory
-│   │   ├── models/              # SQLAlchemy models
-│   │   │   ├── venue.py         # Venue + VenueProfile
-│   │   │   └── user_event.py    # UserEvent
-│   │   ├── schemas/             # Pydantic schemas
-│   │   │   └── venue.py         # Request/response schemas
-│   │   └── providers/           # External API providers
-│   │       └── google.py        # Google Places API client
-│   ├── alembic/                 # Database migrations
-│   │   └── versions/            # Migration files
-│   ├── tests/                   # Unit tests
-│   │   ├── test_schemas.py      # Schema validation tests
+│   │   ├── main.py               # FastAPI app with test endpoints
+│   │   ├── config.py             # Pydantic settings
+│   │   ├── db/                   # Database setup
+│   │   │   ├── base.py           # SQLAlchemy Base
+│   │   │   └── session.py        # Async session factory
+│   │   ├── models/               # SQLAlchemy models
+│   │   │   ├── venue.py          # Venue + VenueProfile
+│   │   │   └── user_event.py     # UserEvent
+│   │   ├── schemas/              # Pydantic schemas
+│   │   │   └── venue.py          # Request/response schemas
+│   │   └── providers/            # External API providers
+│   │       └── google.py         # Google Places API client
+│   ├── alembic/                  # Database migrations
+│   │   └── versions/             # Migration files
+│   ├── tests/                    # Unit tests
+│   │   ├── test_schemas.py       # Schema validation tests
 │   │   └── test_google_places.py # Provider integration tests
 │   ├── pyproject.toml
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/                    # Step 2 - in progress
+frontend/                       # Step 2: Work in progress
+│   ├── app/                    # Next.js App Router directory
+│   │   ├── layout.tsx          # Root layout
+│   │   ├── page.tsx            # Home page
+│   │   └── globals.css         # Global styles
+│   ├── lib/                    # Next.js App Router directory
+│   │   ├── api.ts              # API client
+│   ├── public/                 # Static assets
+│   ├── .eslintrc.json          # ESLint config
+│   ├── .gitignore              # Git ignore rules
+│   ├── next.config.js          # Next.js config
+│   ├── package.json            # Dependencies
+│   ├── postcss.config.js       # PostCSS config (for Tailwind)
+│   ├── tailwind.config.ts      # Tailwind config
+│   └── tsconfig.json           # TypeScript config
 ├── .github/
 │   └── workflows/
 │       └── backend-ci.yml
@@ -109,6 +123,17 @@ All ranking logic is deterministic and rule-based in early stages.
 - [ ] Geohash utilities (deferred to caching implementation)
 
 ### ⏳ Step 2 — MVP UI: Map + list + mode selector (in progress)
+- [x] Initialize Next.js with TypeScript, Tailwind, App Router
+- [x] Integrate Mapbox GL JS
+- [x] Map component with navigation controls
+- [x] API client for backend integration
+- [x] Venue markers with popups on map
+- [x] Basic venue list display
+- [ ] Mode selector (Work, Date, Quick Bite, Budget)
+- [ ] Basic filters (radius, open now, price)
+- [ ] Detail panel for selected venue
+- [ ] Map/list synchronization (click list → highlight marker)
+- [ ] Responsive layout (desktop + mobile)
 
 ### 🔜 Step 3 — Real nearby retrieval + caching
 
