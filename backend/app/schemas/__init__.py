@@ -16,6 +16,13 @@ from app.schemas.venue import (
     venue_to_response,
 )
 
+from app.schemas.recommend import (
+    RecommendMeta,
+    RecommendRequest,
+    RecommendResponse,
+    VenueCard,
+)
+
 __all__ = [
     # Venue schemas
     "VenueCreate",
@@ -34,4 +41,9 @@ __all__ = [
     "venue_profile_to_response",
     "user_event_to_response",
     "user_event_from_create",
+    # Recommend schemas
+    "RecommendRequest",
+    "RecommendMeta",
+    "VenueCard",
+    "RecommendResponse",
 ]
