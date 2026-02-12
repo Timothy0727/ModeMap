@@ -31,6 +31,7 @@ class GooglePlacesClient:
         lng: float,
         radius_m: int = 1000,
         max_results: int = 20,
+        include_types: list[str] | None = None,
         open_now: bool = False,
         price_level: int | None = None,
         rank_preference: str | None = None,
@@ -42,9 +43,10 @@ class GooglePlacesClient:
             lng: Longitude
             radius_m: Search radius in meters (max 50000, default 1000)
             max_results: Maximum number of results (default 20)
+            include_types: Optional list of place types to include (e.g., restaurant, cafe)
             open_now: Filter for places open now
             price_level: Filter by price level (0-4)
-            keyword: Optional keyword search
+            rank_preference: Optional ranking preference ("DISTANCE" or "POPULARITY")
 
         Returns:
             List of VenueCreate schemas
@@ -61,14 +63,6 @@ class GooglePlacesClient:
 
         # Prepare request body
         body = {
-            "includedTypes": [
-                "restaurant",
-                "cafe",
-                "bar",
-                "meal_takeaway",
-                "meal_delivery",
-                "bakery",
-            ],
             "maxResultCount": min(max_results, 20),  # API limit is 20
             "locationRestriction": {
                 "circle": {
@@ -77,6 +71,22 @@ class GooglePlacesClient:
                 }
             },
         }
+
+        if include_types:
+            body["includedTypes"] = include_types
+        else:
+            body["includedTypes"] = [
+                "restaurant",
+                "cafe",
+                "bar",
+                "meal_takeaway",
+                "meal_delivery",
+                "bakery",
+                "art_gallery",
+                "museum",
+                "cultural_landmark",
+                "historical_place",
+            ]
 
         # Add optional filters
         if open_now:
