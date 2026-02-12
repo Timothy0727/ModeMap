@@ -12,6 +12,7 @@ extend-exclude = ["app/db/migrations"]
 select = ["E", "F", "W", "I", "B", "UP"]
 ignore = [
   "E501",  # line length handled by formatter
+  "B008",  # FastAPI uses Query()/Depends()
 ]
 
 [tool.ruff.format]
