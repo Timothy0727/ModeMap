@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class EventType(str, enum.StrEnum):
+class EventType(enum.StrEnum):
     """User event types."""
 
     IMPRESSION = "impression"
@@ -23,7 +23,7 @@ class EventType(str, enum.StrEnum):
     NAVIGATE = "navigate"
 
 
-class Mode(str, enum.StrEnum):
+class Mode(enum.StrEnum):
     """Recommendation modes."""
 
     WORK = "work"
