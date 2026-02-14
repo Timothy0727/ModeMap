@@ -3,7 +3,7 @@
 import {useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { Venue } from "@/lib/api";
+import { type RecommendVenue } from "@/lib/api";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -11,7 +11,7 @@ interface MapProps {
   initialCenter?: [number, number]; // [lng, lat]
   initialZoom?: number;
   className?: string;
-  venues?: Venue[];
+  venues?: RecommendVenue[];
 }
 
 export default function Map({

@@ -1,27 +1,44 @@
 "use client";
-import Image from "next/image";
-import { useState } from 'react';
-import { searchVenues, Venue } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import { recommend, type Mode, type RecommendVenue } from "@/lib/api";
 import Map from "@/components/Map";
+import ModeSelector from "@/components/ModeSelector";
 
+
+const DEFAULT_LAT = 37.7749;
+const DEFAULT_LNG = -122.4194;
+const DEFAULT_RADIUS = 1000;
 
 export default function Home() {
-
-  // In a React component:
-  const [venues, setVenues] = useState<Venue[]>([]);
+  const [mode, setMode] = useState<Mode>("work");
+  const [venues, setVenues] = useState<RecommendVenue[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function loadVenues(lat: number, lng: number) {
+  const loadRecommend = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const results = await searchVenues({ lat, lng, radius: 1000 });
-      setVenues(results);
-    } catch (error) {
-      console.error("Failed to load venues:", error);
+      const res = await recommend({
+        mode,
+        lat: DEFAULT_LAT,
+        lng: DEFAULT_LNG,
+        radius: DEFAULT_RADIUS,
+      });
+      setVenues(res.venues);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load recommendations");
+      setVenues([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, [mode]);
+
+  // Load recommendations on mount and whenever mode changes
+  useEffect(() => {
+    loadRecommend();
+  }, [loadRecommend]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
@@ -29,32 +46,40 @@ export default function Home() {
           ModeMap
         </h1>
 
-        {/* Test button to load venues */}
-        <button
-          onClick={() => loadVenues(37.7749, -122.4194)}
-          disabled={loading}
-          className="rounded-full bg-foreground px-5 py-3 text-background hover:bg-[#383838]"
-        >
-          {loading ? "Loading..." : "Load Venues (SF)"}
-        </button>
+        {/* Mode selector */}
+        <ModeSelector mode={mode} onModeChange={setMode} />
+
+        {/* Loading / error feedback */}
+        {loading && (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+        )}
+        {error && (
+          <p className="mt-2 text-sm text-red-600">{error}</p>
+        )}
 
         {/* Map section */}
-        <div className="w-full h-[400px]">
+        <div className="mt-4 w-full h-[400px]">
           <Map className="w-full h-full" venues={venues} />
         </div>
 
-        {/* Display venues */}
+        {/* Ranked venue list */}
         <div className="mt-4 w-full">
           <p className="text-zinc-600 dark:text-zinc-400">
             Found {venues.length} venues
           </p>
           <ul className="mt-2 space-y-2">
-            {venues.map((venue) => (
+            {venues.map((venue, index) => (
               <li
-                key={venue.provider_id}
+                key={venue.id}
                 className="rounded border p-2 text-black dark:text-white"
               >
-                {venue.name} - {venue.rating ?? "N/A"} ⭐
+                <span className="mr-2 text-zinc-400">{index + 1}.</span>
+                {venue.name} — {venue.rating ?? "N/A"} ⭐
+                {venue.price_level !== null && (
+                  <span className="ml-2 text-zinc-500">
+                    {"$".repeat(venue.price_level)}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
