@@ -1,5 +1,8 @@
 """FastAPI application main module."""
 
+import logging
+
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,54 +10,55 @@ from app.models.user_event import Mode
 from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResponse, VenueCard
 from app.schemas.venue import VenueCreate
 
-MODE_PLACE_TYPES: dict[Mode, list[str]] = {
-    Mode.WORK: [
-        "cafe",
-        "coffee_shop",
-        "library",
-        "internet_cafe",
-    ],
-    Mode.DATE: [
-        "restaurant",
-        "fine_dining_restaurant",
-        "bar",
-        "wine_bar",
-        "cafe",
-        "steak_house",
-        "sushi_restaurant",
-    ],
-    Mode.QUICK_BITE: [
-        "fast_food_restaurant",
-        "cafe",
-        "coffee_shop",
-        "bakery",
-        "sandwich_shop",
-        "pizza_restaurant",
-        "diner",
-        "donut_shop",
-        "meal_takeaway",
-    ],
-    Mode.BUDGET: [
-        "restaurant",
-        "cafe",
-        "fast_food_restaurant",
-        "meal_takeaway",
-        "bakery",
-        "diner",
-        "pizza_restaurant",
-        "sandwich_shop",
-    ],
+logger = logging.getLogger(__name__)
+
+
+class ModeSearch:
+    """Text Search queries for a given mode.
+
+    When strict filters (price, open_now) are active, the simple_query is used
+    to avoid conflicts between descriptive natural-language queries and Google's
+    structured filters.  The descriptive text_query is used when no strict
+    filters are set.
+    """
+
+    def __init__(
+        self,
+        text_query: str,
+        simple_query: str,
+        included_type: str | None = None,
+    ):
+        self.text_query = text_query
+        self.simple_query = simple_query
+        self.included_type = included_type
+
+
+MODE_SEARCH: dict[Mode, ModeSearch] = {
+    Mode.WORK: ModeSearch(
+        text_query="quiet cafe or coworking space with wifi",
+        simple_query="cafe",
+        included_type="cafe",
+    ),
+    Mode.DATE: ModeSearch(
+        text_query="romantic restaurant or bar for a date",
+        simple_query="restaurant",
+        included_type="restaurant",
+    ),
+    Mode.QUICK_BITE: ModeSearch(
+        text_query="quick food or fast casual restaurant",
+        simple_query="restaurant",
+        included_type="restaurant",
+    ),
+    Mode.BUDGET: ModeSearch(
+        text_query="affordable restaurant or cheap eats",
+        simple_query="restaurant",
+        included_type="restaurant",
+    ),
 }
 
-# Default place types when mode has no mapping (fallback for provider)
-_DEFAULT_PLACE_TYPES = [
-    "restaurant",
-    "cafe",
-    "bar",
-    "meal_takeaway",
-    "meal_delivery",
-    "bakery",
-]
+_DEFAULT_SEARCH = ModeSearch(
+    text_query="restaurant", simple_query="restaurant", included_type="restaurant",
+)
 
 
 def _distance_sq(center_lat: float, center_lng: float, lat: float, lng: float) -> float:
@@ -161,28 +165,31 @@ async def test_google_places(lat: float = 37.7749, lng: float = -122.4194, radiu
 @app.get("/recommend", response_model=RecommendResponse)
 async def recommend(
     params: RecommendRequest = Depends(get_recommend_params),
-    max_results: int = Query(20, ge=1, le=20, description="Max venues to return"),
+    max_results: int = Query(60, ge=1, le=60, description="Max venues to return"),
 ):
     """Return ranked nearby venues for the given mode and filters."""
     try:
         from app.providers import GooglePlacesClient
 
-        include_types = MODE_PLACE_TYPES.get(params.mode, _DEFAULT_PLACE_TYPES)
+        mode_search = MODE_SEARCH.get(params.mode, _DEFAULT_SEARCH)
+
+        has_strict_filters = params.price is not None or params.open_now
+        text_query = mode_search.simple_query if has_strict_filters else mode_search.text_query
 
         client = GooglePlacesClient()
-        venues = await client.search_nearby(
+        venues = await client.text_search(
+            text_query=text_query,
             lat=params.lat,
             lng=params.lng,
             radius_m=params.radius,
+            included_type=mode_search.included_type,
             open_now=params.open_now,
             price_level=params.price,
             max_results=max_results,
-            include_types=include_types,
         )
 
-        # Dummy ranking: rating (desc, None last) then distance (asc)
         def sort_key(v: VenueCreate) -> tuple:
-            rating = -(v.rating if v.rating is not None else -1)  # None last
+            rating = -(v.rating if v.rating is not None else -1)
             dist_sq = _distance_sq(params.lat, params.lng, v.lat, v.lng)
             return (rating, dist_sq)
 
@@ -202,5 +209,12 @@ async def recommend(
         return RecommendResponse(meta=meta, venues=cards)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text if e.response else str(e)
+        logger.error("Provider HTTP error in /recommend: %s", detail)
+        raise HTTPException(
+            status_code=502, detail=f"Provider error: {detail}",
+        ) from e
     except Exception as e:
+        logger.error("Unexpected error in /recommend: %s", e)
         raise HTTPException(status_code=500, detail=f"Error fetching places: {str(e)}") from e
