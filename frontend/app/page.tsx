@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { recommend, type Mode, type RecommendVenue } from "@/lib/api";
 import Map from "@/components/Map";
 import ModeSelector from "@/components/ModeSelector";
+import Filters from "@/components/Filters";
 
 
 const DEFAULT_LAT = 37.7749;
@@ -11,9 +12,19 @@ const DEFAULT_RADIUS = 1000;
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("work");
+  const [radius, setRadius] = useState(DEFAULT_RADIUS);
+  const [openNow, setOpenNow] = useState(false);
+  const [price, setPrice] = useState<number | undefined>(undefined);
   const [venues, setVenues] = useState<RecommendVenue[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Debounce radius so the API isn't called on every slider pixel
+  const [debouncedRadius, setDebouncedRadius] = useState(radius);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedRadius(radius), 300);
+    return () => clearTimeout(timer);
+  }, [radius]);
 
   const loadRecommend = useCallback(async () => {
     setLoading(true);
@@ -23,7 +34,10 @@ export default function Home() {
         mode,
         lat: DEFAULT_LAT,
         lng: DEFAULT_LNG,
-        radius: DEFAULT_RADIUS,
+        radius: debouncedRadius,
+        open_now: openNow,
+        price,
+        max_results: 60,
       });
       setVenues(res.venues);
     } catch (e) {
@@ -32,9 +46,9 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [mode]);
+  }, [mode, debouncedRadius, openNow, price]);
 
-  // Load recommendations on mount and whenever mode changes
+  // Load recommendations on mount and whenever filters change
   useEffect(() => {
     loadRecommend();
   }, [loadRecommend]);
@@ -48,6 +62,18 @@ export default function Home() {
 
         {/* Mode selector */}
         <ModeSelector mode={mode} onModeChange={setMode} />
+
+        {/* Filters: radius slider, open now, price */}
+        <div className="mt-3 w-full">
+          <Filters
+            radius={radius}
+            onRadiusChange={setRadius}
+            openNow={openNow}
+            onOpenNowChange={setOpenNow}
+            price={price}
+            onPriceChange={setPrice}
+          />
+        </div>
 
         {/* Loading / error feedback */}
         {loading && (
