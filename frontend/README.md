@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ModeMap Frontend
 
-## Getting Started
+Next.js frontend for ModeMap — a mode-aware nearby places recommender.
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### Prerequisites
+- Node.js 18+
+- Backend running on `http://localhost:8000` (see root README)
+
+### Environment variables
+
+Create `.env.local`:
+
+```
+NEXT_PUBLIC_MAPBOX_TOKEN=your_mapbox_access_token
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Install and run
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```text
+frontend/
+├── app/
+│   ├── layout.tsx           # Root layout (fonts, metadata)
+│   ├── page.tsx             # Home page — mode selector, filters, map, venue list
+│   └── globals.css          # Tailwind global styles
+├── components/
+│   ├── Map.tsx              # Mapbox GL JS map with venue markers and popups
+│   ├── ModeSelector.tsx     # Mode chip selector (Work, Date, Quick Bite, Budget)
+│   └── Filters.tsx          # Radius slider, Open Now toggle, Price level chips
+├── lib/
+│   └── api.ts               # API client — recommend(), types, healthCheck()
+├── public/                  # Static assets
+├── package.json
+├── tailwind.config.ts
+└── tsconfig.json
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Components
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### `ModeSelector`
+Four chip buttons for selecting the recommendation mode. Controlled via `mode` / `onModeChange` props.
 
-## Deploy on Vercel
+### `Filters`
+- **Radius**: Range slider, 100 m to 50 km
+- **Open Now**: Checkbox toggle
+- **Price**: Chip buttons — Any, $, $$, $$$, $$$$
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### `Map`
+Mapbox GL JS map that renders venue markers from the `venues` prop. Each marker shows a popup with the venue name and rating on hover/click.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## API Client (`lib/api.ts`)
+
+### `recommend(params)`
+Calls `GET /recommend` with mode, location, radius, and filters. Returns up to 60 ranked venues.
+
+### Types
+- `Mode` — `"work" | "date" | "quick_bite" | "budget"`
+- `RecommendParams` — request parameters
+- `RecommendVenue` — venue card with categories, rating, price, hours, explanations
+- `RecommendResponse` — `{ meta, venues }`
+
+## State Management
+
+State lives in the home page component (`app/page.tsx`):
+- `mode` — selected recommendation mode
+- `radius` / `debouncedRadius` — search radius with 300ms debounce
+- `openNow` — open-now filter
+- `price` — price level filter (`undefined` = any)
+- `venues` — current recommendation results
+- `loading` / `error` — request status
+
+Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`.
