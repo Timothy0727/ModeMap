@@ -57,7 +57,9 @@ MODE_SEARCH: dict[Mode, ModeSearch] = {
 }
 
 _DEFAULT_SEARCH = ModeSearch(
-    text_query="restaurant", simple_query="restaurant", included_type="restaurant",
+    text_query="restaurant",
+    simple_query="restaurant",
+    included_type="restaurant",
 )
 
 
@@ -213,7 +215,8 @@ async def recommend(
         detail = e.response.text if e.response else str(e)
         logger.error("Provider HTTP error in /recommend: %s", detail)
         raise HTTPException(
-            status_code=502, detail=f"Provider error: {detail}",
+            status_code=502,
+            detail=f"Provider error: {detail}",
         ) from e
     except Exception as e:
         logger.error("Unexpected error in /recommend: %s", e)
