@@ -25,8 +25,6 @@ export default function ModeSelector({ mode, onModeChange }: ModeSelectorProps) 
                     aria-pressed={mode === value}
                     className={
                         mode === value
-                            // ? "bg-blue-600 text-white px-4 py-2 rounded"
-                            // : "bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
                             ? "rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background"
                             : "rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-500"
                     }
