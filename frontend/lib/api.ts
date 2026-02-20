@@ -39,10 +39,9 @@ export async function searchVenues(params: SearchParams): Promise<Venue[]> {
     url.searchParams.set("lng", lng.toString());
     url.searchParams.set("radius", radius.toString());
     
-    console.log(url);
     const response = await fetch(url.toString());
     if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`)
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
     const data: VenueResponse = await response.json();
@@ -84,16 +83,6 @@ export interface RecommendVenue {
     explanations: string[] | null;
 }
 
-// export interface RecommendRequest {
-//     mode: Mode;
-//     lat: number;
-//     lng: number;
-//     radius?: number;
-//     open_now?: boolean;
-//     price_level?: number;
-//     max_results?: number;
-// } 
-
 export interface RecommendMeta {
     mode: Mode;
     radius: number;
@@ -130,10 +119,9 @@ export async function recommend(params: RecommendParams): Promise<RecommendRespo
         url.searchParams.set("max_results", params.max_results.toString());
     }
 
-    console.log(`request url: ${url}`);
     const response = await fetch(url.toString());
     if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`)
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
     const data = (await response.json()) as RecommendResponse;
