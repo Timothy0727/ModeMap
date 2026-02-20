@@ -1,14 +1,19 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { Drawer } from "vaul";
 import { recommend, type Mode, type RecommendVenue } from "@/lib/api";
 import Map from "@/components/Map";
 import ModeSelector from "@/components/ModeSelector";
 import Filters from "@/components/Filters";
 import VenueDetailPanel from "@/components/VenueDetailPanel";
+import VenueList from "@/components/VenueList";
 
 const DEFAULT_LAT = 37.7749;
 const DEFAULT_LNG = -122.4194;
 const DEFAULT_RADIUS = 1000;
+
+const SNAP_POINTS = [0.15, 0.5, 1] as const;
+const DEFAULT_SNAP = 0.15;
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("work");
@@ -19,6 +24,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
+  const [snap, setSnap] = useState<number | string | null>(DEFAULT_SNAP);
 
   const [debouncedRadius, setDebouncedRadius] = useState(radius);
   useEffect(() => {
@@ -53,12 +59,29 @@ export default function Home() {
     loadRecommend();
   }, [loadRecommend]);
 
-  const handleVenueSelect = useCallback((venue: RecommendVenue) => {
-    setSelectedVenueId((prev) => (prev === venue.id ? null : venue.id));
-  }, []);
+  const handleVenueSelect = useCallback(
+    (venue: RecommendVenue) => {
+      setSelectedVenueId((prev) => {
+        const next = prev === venue.id ? null : venue.id;
+        if (next) setSnap(0.5);
+        return next;
+      });
+    },
+    [],
+  );
 
   const selectedVenue = venues.find((v) => v.id === selectedVenueId) ?? null;
   const selectedRank = selectedVenue ? venues.indexOf(selectedVenue) + 1 : 0;
+
+  const rightColumnContent = selectedVenue ? (
+    <VenueDetailPanel
+      venue={selectedVenue}
+      rank={selectedRank}
+      onClose={() => setSelectedVenueId(null)}
+    />
+  ) : (
+    <VenueList venues={venues} onVenueSelect={handleVenueSelect} />
+  );
 
   return (
     <div className="flex min-h-screen justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -67,10 +90,8 @@ export default function Home() {
           ModeMap
         </h1>
 
-        {/* Mode selector */}
         <ModeSelector mode={mode} onModeChange={setMode} />
 
-        {/* Filters */}
         <div className="mt-3 w-full">
           <Filters
             radius={radius}
@@ -82,7 +103,6 @@ export default function Home() {
           />
         </div>
 
-        {/* Loading / error */}
         {loading && (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
         )}
@@ -90,10 +110,24 @@ export default function Home() {
           <p className="mt-2 text-sm text-red-600">{error}</p>
         )}
 
-        {/* Map + List: side-by-side on md+, stacked on mobile */}
-        <div className="mt-4 flex w-full flex-col gap-4 md:flex-row">
-          {/* Map */}
-          <div className="h-[400px] w-full md:h-[calc(100vh-220px)] md:w-1/2 md:sticky md:top-4 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+        {/* ── Desktop: side-by-side (hidden on mobile) ── */}
+        <div className="mt-4 hidden w-full gap-4 md:flex md:flex-row">
+          <div className="h-[calc(100vh-220px)] w-1/2 sticky top-4 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+            <Map
+              className="w-full h-full"
+              venues={venues}
+              selectedVenueId={selectedVenueId}
+              onMarkerClick={handleVenueSelect}
+            />
+          </div>
+          <div className="w-1/2 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+            {rightColumnContent}
+          </div>
+        </div>
+
+        {/* ── Mobile: full map + bottom sheet (hidden on desktop) ── */}
+        <div className="mt-4 md:hidden flex-1 relative">
+          <div className="h-[calc(100vh-210px)] w-full rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
             <Map
               className="w-full h-full"
               venues={venues}
@@ -102,49 +136,34 @@ export default function Home() {
             />
           </div>
 
-          {/* Right column: detail panel or venue list */}
-          <div className="w-full md:w-1/2 md:max-h-[calc(100vh-220px)] md:overflow-y-auto md:pr-1">
-            {selectedVenue ? (
-              <VenueDetailPanel
-                venue={selectedVenue}
-                rank={selectedRank}
-                onClose={() => setSelectedVenueId(null)}
-              />
-            ) : (
-              <>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  {venues.length} venues found
-                </p>
-                <ul className="mt-2 space-y-2">
-                  {venues.map((venue, index) => (
-                    <li
-                      key={venue.id}
-                      onClick={() => handleVenueSelect(venue)}
-                      className="rounded-lg border border-zinc-200 p-3 cursor-pointer transition-colors hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500 text-black dark:text-white"
-                    >
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xs font-semibold text-zinc-400 min-w-[1.5rem]">
-                          {index + 1}.
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{venue.name}</div>
-                          <div className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-                            {venue.rating !== null && <span>⭐ {venue.rating}</span>}
-                            {venue.price_level !== null && (
-                              <span className="ml-2">{"$".repeat(venue.price_level)}</span>
-                            )}
-                            {venue.categories.length > 0 && (
-                              <span className="ml-2">{venue.categories.slice(0, 2).join(", ")}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
+          <Drawer.Root
+            open
+            modal={false}
+            snapPoints={SNAP_POINTS as unknown as (number | string)[]}
+            activeSnapPoint={snap}
+            setActiveSnapPoint={setSnap}
+          >
+            <Drawer.Portal>
+              <Drawer.Content
+                aria-describedby={undefined}
+                className="fixed inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-700 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] md:hidden"
+                style={{
+                  maxHeight: "96vh",
+                }}
+              >
+                <Drawer.Title className="sr-only">Venue results</Drawer.Title>
+                {/* Drag handle */}
+                <div className="flex justify-center pt-3 pb-2">
+                  <div className="h-1.5 w-10 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+                </div>
+
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-8">
+                  {rightColumnContent}
+                </div>
+              </Drawer.Content>
+            </Drawer.Portal>
+          </Drawer.Root>
         </div>
       </main>
     </div>
