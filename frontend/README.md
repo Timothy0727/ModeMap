@@ -57,7 +57,12 @@ Four chip buttons for selecting the recommendation mode. Controlled via `mode` /
 - **Price**: Chip buttons — Any, $, $$, $$$, $$$$
 
 ### `Map`
-Mapbox GL JS map that renders venue markers from the `venues` prop. Each marker shows a popup with the venue name and rating on hover/click.
+Mapbox GL JS map that renders venue markers using **GeoJSON sources with circle + symbol layers** (GPU-rendered for smooth performance with up to 60 markers). Features:
+- **Ranked markers** — each marker displays its rank number via a symbol layer.
+- **Data-driven selection** — the selected marker turns red and grows larger, driven by a `selected` GeoJSON property.
+- **Hover popups** — hovering a marker shows a popup with rank, name, rating, price, categories, and address.
+- **Click → select** — clicking a marker calls `onMarkerClick`, which toggles selection in the parent.
+- **flyTo animation** — selecting a venue smoothly pans/zooms the camera to center it.
 
 ## API Client (`lib/api.ts`)
 
@@ -79,5 +84,6 @@ State lives in the home page component (`app/page.tsx`):
 - `price` — price level filter (`undefined` = any)
 - `venues` — current recommendation results
 - `loading` / `error` — request status
+- `selectedVenueId` — ID of the currently selected venue (synced between map and list)
 
-Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`.
+Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`. Selecting a venue (via list click or map marker click) highlights it in both the list and on the map, scrolls the list item into view, and flies the map camera to the venue.
