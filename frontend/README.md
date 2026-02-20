@@ -37,7 +37,8 @@ frontend/
 ├── components/
 │   ├── Map.tsx              # Mapbox GL JS map with venue markers and popups
 │   ├── ModeSelector.tsx     # Mode chip selector (Work, Date, Quick Bite, Budget)
-│   └── Filters.tsx          # Radius slider, Open Now toggle, Price level chips
+│   ├── Filters.tsx          # Radius slider, Open Now toggle, Price level chips
+│   └── VenueDetailPanel.tsx # Full venue detail view (replaces list when selected)
 ├── lib/
 │   └── api.ts               # API client — recommend(), types, healthCheck()
 ├── public/                  # Static assets
@@ -64,6 +65,17 @@ Mapbox GL JS map that renders venue markers using **GeoJSON sources with circle 
 - **Click → select** — clicking a marker calls `onMarkerClick`, which toggles selection in the parent.
 - **flyTo animation** — selecting a venue smoothly pans/zooms the camera to center it.
 
+### `VenueDetailPanel`
+Full detail view for a selected venue, shown in the right column in place of the venue list. Displays:
+- Rank badge, full name, rating, price level, open/closed status badge
+- All category tags
+- Full address with a Google Maps directions link
+- Weekly hours schedule (parsed from `hours.weekday_text` or `raw_hours` fallback)
+- "Why this matches" explanation bullets (placeholder for Step 4 scoring)
+- "Back to list" button to deselect and return to the venue list
+
+Props: `venue`, `rank`, `onClose`.
+
 ## API Client (`lib/api.ts`)
 
 ### `recommend(params)`
@@ -86,4 +98,4 @@ State lives in the home page component (`app/page.tsx`):
 - `loading` / `error` — request status
 - `selectedVenueId` — ID of the currently selected venue (synced between map and list)
 
-Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`. Selecting a venue (via list click or map marker click) highlights it in both the list and on the map, scrolls the list item into view, and flies the map camera to the venue.
+Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`. Selecting a venue (via list click or map marker click) replaces the venue list with the detail panel and flies the map camera to the venue. Clicking "Back to list" or clicking the same map marker again deselects and returns to the list.
