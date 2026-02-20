@@ -81,7 +81,13 @@ class GooglePlacesClient:
             raise ValueError("Price level must be between 0 and 4")
 
         body = self._build_body(
-            text_query, lat, lng, radius_m, included_type, open_now, price_level,
+            text_query,
+            lat,
+            lng,
+            radius_m,
+            included_type,
+            open_now,
+            price_level,
         )
         headers = {
             "Content-Type": "application/json",
@@ -96,12 +102,15 @@ class GooglePlacesClient:
                 raise
 
             # Retry with a stripped-down body (no includedType / priceLevels)
-            logger.warning(
-                "Text Search returned 400; retrying without includedType/priceLevels"
-            )
+            logger.warning("Text Search returned 400; retrying without includedType/priceLevels")
             fallback_body = self._build_body(
-                text_query, lat, lng, radius_m,
-                included_type=None, open_now=open_now, price_level=None,
+                text_query,
+                lat,
+                lng,
+                radius_m,
+                included_type=None,
+                open_now=open_now,
+                price_level=None,
             )
             return await self._paginated_fetch(fallback_body, headers, max_results)
 
@@ -160,7 +169,9 @@ class GooglePlacesClient:
                 except httpx.HTTPStatusError as e:
                     logger.error(
                         "Google Text Search API error (page %d): %d - %s",
-                        page, e.response.status_code, e.response.text,
+                        page,
+                        e.response.status_code,
+                        e.response.text,
                     )
                     raise
                 except httpx.RequestError as e:
@@ -180,7 +191,9 @@ class GooglePlacesClient:
 
         venues = venues[:max_results]
         logger.info(
-            "Text Search returned %d venues across %d page(s)", len(venues), page + 1,
+            "Text Search returned %d venues across %d page(s)",
+            len(venues),
+            page + 1,
         )
         return venues
 
@@ -229,11 +242,7 @@ class GooglePlacesClient:
 
             types = place.get("types", [])
             excluded_types = {"establishment", "point_of_interest", "food", "store"}
-            categories = [
-                t.replace("_", " ").title()
-                for t in types
-                if t not in excluded_types
-            ][:5]
+            categories = [t.replace("_", " ").title() for t in types if t not in excluded_types][:5]
 
             price_level = None
             price_str = place.get("priceLevel")
@@ -244,7 +253,7 @@ class GooglePlacesClient:
             raw_hours = None
             opening_hours = place.get("currentOpeningHours") or place.get("regularOpeningHours")
             if opening_hours:
-                weekday_text = opening_hours.get("weekdayText", [])
+                weekday_text = opening_hours.get("weekdayDescriptions", [])
                 if weekday_text:
                     raw_hours = "\n".join(weekday_text)
                     hours = {
