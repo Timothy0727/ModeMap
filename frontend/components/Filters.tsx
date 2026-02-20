@@ -66,7 +66,7 @@ export default function Filters({
         </label>
 
         {/* Price chips */}
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <span className="mr-1 text-sm text-zinc-500 dark:text-zinc-400">Price:</span>
           {PRICE_OPTIONS.map(({ value, label }) => (
             <button
