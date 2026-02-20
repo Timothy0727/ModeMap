@@ -17,7 +17,7 @@ SAMPLE_PLACE = {
     "priceLevel": "PRICE_LEVEL_MODERATE",
     "formattedAddress": "66 Mint St, San Francisco, CA",
     "currentOpeningHours": {
-        "weekdayText": ["Monday: 7:00 AM – 6:00 PM"],
+        "weekdayDescriptions": ["Monday: 7:00 AM – 6:00 PM"],
         "openNow": True,
     },
 }
@@ -71,7 +71,10 @@ class TestGooglePlacesClient:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             venues = await client.text_search(
-                text_query="cafe", lat=37.7749, lng=-122.4194, radius_m=1000,
+                text_query="cafe",
+                lat=37.7749,
+                lng=-122.4194,
+                radius_m=1000,
             )
 
         assert len(venues) == 1
@@ -132,7 +135,10 @@ class TestGooglePlacesClient:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             venues = await client.text_search(
-                text_query="cafe", lat=37.7749, lng=-122.4194, max_results=60,
+                text_query="cafe",
+                lat=37.7749,
+                lng=-122.4194,
+                max_results=60,
             )
 
         assert len(venues) == 3
@@ -155,7 +161,10 @@ class TestGooglePlacesClient:
 
         with patch("httpx.AsyncClient", return_value=mock_client):
             venues = await client.text_search(
-                text_query="cafe", lat=37.7749, lng=-122.4194, max_results=1,
+                text_query="cafe",
+                lat=37.7749,
+                lng=-122.4194,
+                max_results=1,
             )
 
         assert len(venues) == 1
@@ -166,7 +175,10 @@ class TestGooglePlacesClient:
         client = GooglePlacesClient(api_key="test_key")
         with pytest.raises(ValueError, match="Radius cannot exceed 50000 meters"):
             await client.text_search(
-                text_query="cafe", lat=37.7749, lng=-122.4194, radius_m=60000,
+                text_query="cafe",
+                lat=37.7749,
+                lng=-122.4194,
+                radius_m=60000,
             )
 
     @pytest.mark.asyncio
@@ -174,7 +186,10 @@ class TestGooglePlacesClient:
         client = GooglePlacesClient(api_key="test_key")
         with pytest.raises(ValueError, match="Price level must be between 0 and 4"):
             await client.text_search(
-                text_query="cafe", lat=37.7749, lng=-122.4194, price_level=5,
+                text_query="cafe",
+                lat=37.7749,
+                lng=-122.4194,
+                price_level=5,
             )
 
     @pytest.mark.asyncio
@@ -184,7 +199,9 @@ class TestGooglePlacesClient:
         err_resp.status_code = 400
         err_resp.text = '{"error": {"message": "Invalid request"}}'
         err_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "API Error", request=MagicMock(), response=err_resp,
+            "API Error",
+            request=MagicMock(),
+            response=err_resp,
         )
 
         ok_resp = _make_mock_response({"places": [SAMPLE_PLACE]})
@@ -221,7 +238,9 @@ class TestGooglePlacesClient:
         err_resp.status_code = 403
         err_resp.text = '{"error": {"message": "Forbidden"}}'
         err_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Forbidden", request=MagicMock(), response=err_resp,
+            "Forbidden",
+            request=MagicMock(),
+            response=err_resp,
         )
 
         mock_client = _mock_http_client(err_resp)
@@ -230,7 +249,9 @@ class TestGooglePlacesClient:
         with patch("httpx.AsyncClient", return_value=mock_client):
             with pytest.raises(httpx.HTTPStatusError):
                 await client.text_search(
-                    text_query="cafe", lat=37.7749, lng=-122.4194,
+                    text_query="cafe",
+                    lat=37.7749,
+                    lng=-122.4194,
                 )
 
         assert mock_client.post.call_count == 1
@@ -242,7 +263,9 @@ class TestGooglePlacesClient:
         err_resp.status_code = 400
         err_resp.text = '{"error": {"message": "Bad request"}}'
         err_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Bad request", request=MagicMock(), response=err_resp,
+            "Bad request",
+            request=MagicMock(),
+            response=err_resp,
         )
 
         mock_client = AsyncMock()
@@ -352,7 +375,7 @@ class TestGooglePlacesClient:
             "displayName": {"text": "Test Place"},
             "location": {"latitude": 37.7749, "longitude": -122.4194},
             "regularOpeningHours": {
-                "weekdayText": ["Monday: 9:00 AM – 6:00 PM"],
+                "weekdayDescriptions": ["Monday: 9:00 AM – 6:00 PM"],
                 "openNow": False,
             },
         }
