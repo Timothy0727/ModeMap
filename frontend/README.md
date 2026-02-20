@@ -38,7 +38,10 @@ frontend/
 │   ├── Map.tsx              # Mapbox GL JS map with venue markers and popups
 │   ├── ModeSelector.tsx     # Mode chip selector (Work, Date, Quick Bite, Budget)
 │   ├── Filters.tsx          # Radius slider, Open Now toggle, Price level chips
-│   └── VenueDetailPanel.tsx # Full venue detail view (replaces list when selected)
+│   ├── VenueDetailPanel.tsx # Full venue detail view (replaces list when selected)
+│   └── VenueList.tsx        # Venue list shared by desktop column and mobile drawer
+├── hooks/
+│   └── useRecommend.ts      # Presenter hook: state, recommend() call, handlers
 ├── lib/
 │   └── api.ts               # API client — recommend(), types, healthCheck()
 ├── public/                  # Static assets
@@ -87,15 +90,13 @@ Calls `GET /recommend` with mode, location, radius, and filters. Returns up to 6
 - `RecommendVenue` — venue card with categories, rating, price, hours, explanations
 - `RecommendResponse` — `{ meta, venues }`
 
-## State Management
+## State Management (MVP Presenter pattern)
 
-State lives in the home page component (`app/page.tsx`):
-- `mode` — selected recommendation mode
-- `radius` / `debouncedRadius` — search radius with 300ms debounce
-- `openNow` — open-now filter
-- `price` — price level filter (`undefined` = any)
-- `venues` — current recommendation results
-- `loading` / `error` — request status
-- `selectedVenueId` — ID of the currently selected venue (synced between map and list)
+Recommendation state and API logic live in **`hooks/useRecommend.ts`**. The hook owns:
+- `mode`, `radius`, `openNow`, `price` (with 300ms debounce on radius)
+- `venues`, `loading`, `error`
+- `selectedVenueId`, `selectedVenue`, `selectedRank`
+- `snap` / `setSnap` for the mobile bottom sheet
+- Handlers: `onModeChange`, `onRadiusChange`, `onOpenNowChange`, `onPriceChange`, `onVenueSelect`, `onCloseDetail`
 
-Changing any filter triggers a new `recommend()` call via `useEffect` + `useCallback`. Selecting a venue (via list click or map marker click) replaces the venue list with the detail panel and flies the map camera to the venue. Clicking "Back to list" or clicking the same map marker again deselects and returns to the list.
+The home page (`app/page.tsx`) is a **thin View**: it calls `useRecommend()`, composes the right-column content (list vs detail panel), and renders layout + children from the returned props. No API calls or business logic in the page. This keeps testability high and sets up Step 10 (feedback) cleanly.
