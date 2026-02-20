@@ -270,6 +270,14 @@ If Google returns HTTP 400 (e.g. due to `includedType` + `priceLevels` conflict)
 
 Current ranking is a simple sort by rating (descending, nulls last) then distance (ascending). Mode-specific scoring functions are planned for Step 4.
 
+### GPU-rendered map markers (GeoJSON layers)
+
+The map originally used DOM-based Mapbox markers (one HTML element per venue). This caused visible lag during pan/zoom with 60 markers. The implementation now uses **GeoJSON sources with circle + symbol layers**, which are rendered entirely on the GPU. Marker selection state, rank labels, and hover popups are all driven through GeoJSON feature properties and data-driven styling expressions.
+
+### Map initialization stability
+
+`Map.tsx` stores `initialCenter` and `initialZoom` in `useRef` to prevent the map initialization `useEffect` from re-firing when the parent re-renders. The map is created exactly once on mount (empty dependency array) and data updates flow through a separate `useEffect` that watches `venues`, `selectedVenueId`, and `mapReady`.
+
 ---
 
 ## Implementation Progress
@@ -306,9 +314,12 @@ Current ranking is a simple sort by rating (descending, nulls last) then distanc
 - [x] Fallback retry on Google 400 errors (drops `includedType`/`priceLevels`)
 - [x] Dummy ranking (rating desc, distance asc)
 - [x] Venue list with rank numbers and price indicators
-- [ ] Detail panel for selected venue
-- [ ] Map/list synchronization (click list → highlight marker, click marker → highlight list)
-- [ ] Responsive layout (desktop + mobile)
+- [x] Map/list synchronization (click list → highlight marker, click marker → scroll + highlight list)
+- [x] Selected venue flyTo camera animation
+- [x] GPU-rendered markers via GeoJSON layers (circle + symbol) for smooth performance
+- [x] Hover popups with venue details (rank, name, rating, price, categories, address)
+- [x] Responsive side-by-side layout (map + list on desktop, stacked on mobile)
+- [ ] Detail panel for selected venue (planned for Step 7)
 
 ### Step 3 — Real nearby retrieval + caching
 
