@@ -1,10 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { recommend, type Mode, type RecommendVenue } from "@/lib/api";
 import Map from "@/components/Map";
 import ModeSelector from "@/components/ModeSelector";
 import Filters from "@/components/Filters";
-
 
 const DEFAULT_LAT = 37.7749;
 const DEFAULT_LNG = -122.4194;
@@ -18,8 +17,10 @@ export default function Home() {
   const [venues, setVenues] = useState<RecommendVenue[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
 
-  // Debounce radius so the API isn't called on every slider pixel
+  const venueListRefs = useRef<Record<string, HTMLLIElement | null>>({});
+
   const [debouncedRadius, setDebouncedRadius] = useState(radius);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedRadius(radius), 300);
@@ -40,6 +41,7 @@ export default function Home() {
         max_results: 60,
       });
       setVenues(res.venues);
+      setSelectedVenueId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load recommendations");
       setVenues([]);
@@ -48,14 +50,25 @@ export default function Home() {
     }
   }, [mode, debouncedRadius, openNow, price]);
 
-  // Load recommendations on mount and whenever filters change
   useEffect(() => {
     loadRecommend();
   }, [loadRecommend]);
 
+  useEffect(() => {
+    if (!selectedVenueId) return;
+    const el = venueListRefs.current[selectedVenueId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [selectedVenueId]);
+
+  const handleVenueSelect = useCallback((venue: RecommendVenue) => {
+    setSelectedVenueId((prev) => (prev === venue.id ? null : venue.id));
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+    <div className="flex min-h-screen justify-center bg-zinc-50 font-sans dark:bg-black">
+      <main className="flex w-full max-w-6xl flex-col px-4 py-6 sm:px-8 bg-white dark:bg-black">
         <h1 className="text-3xl font-semibold text-black dark:text-zinc-50">
           ModeMap
         </h1>
@@ -63,7 +76,7 @@ export default function Home() {
         {/* Mode selector */}
         <ModeSelector mode={mode} onModeChange={setMode} />
 
-        {/* Filters: radius slider, open now, price */}
+        {/* Filters */}
         <div className="mt-3 w-full">
           <Filters
             radius={radius}
@@ -75,7 +88,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Loading / error feedback */}
+        {/* Loading / error */}
         {loading && (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
         )}
@@ -83,32 +96,64 @@ export default function Home() {
           <p className="mt-2 text-sm text-red-600">{error}</p>
         )}
 
-        {/* Map section */}
-        <div className="mt-4 w-full h-[400px]">
-          <Map className="w-full h-full" venues={venues} />
-        </div>
+        {/* Map + List: side-by-side on md+, stacked on mobile */}
+        <div className="mt-4 flex w-full flex-col gap-4 md:flex-row">
+          {/* Map */}
+          <div className="h-[400px] w-full md:h-[calc(100vh-220px)] md:w-1/2 md:sticky md:top-4 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+            <Map
+              className="w-full h-full"
+              venues={venues}
+              selectedVenueId={selectedVenueId}
+              onMarkerClick={handleVenueSelect}
+            />
+          </div>
 
-        {/* Ranked venue list */}
-        <div className="mt-4 w-full">
-          <p className="text-zinc-600 dark:text-zinc-400">
-            Found {venues.length} venues
-          </p>
-          <ul className="mt-2 space-y-2">
-            {venues.map((venue, index) => (
-              <li
-                key={venue.id}
-                className="rounded border p-2 text-black dark:text-white"
-              >
-                <span className="mr-2 text-zinc-400">{index + 1}.</span>
-                {venue.name} — {venue.rating ?? "N/A"} ⭐
-                {venue.price_level !== null && (
-                  <span className="ml-2 text-zinc-500">
-                    {"$".repeat(venue.price_level)}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          {/* Venue list */}
+          <div className="w-full md:w-1/2">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {venues.length} venues found
+            </p>
+            <ul className="mt-2 space-y-2 md:max-h-[calc(100vh-260px)] md:overflow-y-auto md:pr-1">
+              {venues.map((venue, index) => {
+                const isSelected = venue.id === selectedVenueId;
+                return (
+                  <li
+                    key={venue.id}
+                    ref={(el) => { venueListRefs.current[venue.id] = el; }}
+                    onClick={() => handleVenueSelect(venue)}
+                    className={`rounded-lg border p-3 cursor-pointer transition-colors ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-950 dark:border-blue-400"
+                        : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
+                    } text-black dark:text-white`}
+                  >
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xs font-semibold text-zinc-400 min-w-[1.5rem]">
+                        {index + 1}.
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{venue.name}</div>
+                        <div className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+                          {venue.rating !== null && <span>⭐ {venue.rating}</span>}
+                          {venue.price_level !== null && (
+                            <span className="ml-2">{"$".repeat(venue.price_level)}</span>
+                          )}
+                          {venue.categories.length > 0 && (
+                            <span className="ml-2">{venue.categories.slice(0, 2).join(", ")}</span>
+                          )}
+                        </div>
+                        {isSelected && venue.address && (
+                          <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                            {venue.address}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
       </main>
     </div>
