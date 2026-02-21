@@ -1,4 +1,4 @@
-"""Google Places API client using Places API (New)."""
+"""Google Places API client using Text Search (New)."""
 
 import logging
 
@@ -9,151 +9,223 @@ from app.schemas.venue import VenueCreate
 
 logger = logging.getLogger(__name__)
 
+FIELD_MASK = (
+    "places.id,"
+    "places.displayName,"
+    "places.location,"
+    "places.rating,"
+    "places.priceLevel,"
+    "places.types,"
+    "places.formattedAddress,"
+    "places.currentOpeningHours,"
+    "places.regularOpeningHours,"
+    "nextPageToken"
+)
+
+PRICE_INT_TO_API = {
+    0: "PRICE_LEVEL_FREE",
+    1: "PRICE_LEVEL_INEXPENSIVE",
+    2: "PRICE_LEVEL_MODERATE",
+    3: "PRICE_LEVEL_EXPENSIVE",
+    4: "PRICE_LEVEL_VERY_EXPENSIVE",
+}
+
+PRICE_API_TO_INT = {v: k for k, v in PRICE_INT_TO_API.items()}
+
 
 class GooglePlacesClient:
-    """Client for Google Places API (New) using REST API with API key."""
+    """Client for Google Places API (New) — Text Search endpoint."""
 
-    BASE_URL = "https://places.googleapis.com/v1/places:searchNearby"
+    TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
     def __init__(self, api_key: str | None = None):
-        """Initialize Google Places client.
-
-        Args:
-            api_key: Google Places API key. If None, uses settings.google_places_api_key
-        """
         self.api_key = api_key or settings.google_places_api_key
         if not self.api_key:
             raise ValueError("Google Places API key is required. Set GOOGLE_PLACES_API_KEY in .env")
 
+    async def text_search(
+        self,
+        text_query: str,
+        lat: float,
+        lng: float,
+        radius_m: int = 1000,
+        included_type: str | None = None,
+        open_now: bool = False,
+        price_level: int | None = None,
+        max_results: int = 20,
+    ) -> list[VenueCreate]:
+        """Search for places via Text Search (New), paginating up to 60.
+
+        If Google rejects the request (HTTP 400) the method retries once with a
+        simplified body (drops ``includedType`` and ``priceLevels``) so that
+        conflicting filter combinations degrade gracefully instead of returning
+        an error to the user.
+
+        Args:
+            text_query: Required search string (e.g. "cafe", "restaurant").
+            lat: Center latitude for location bias.
+            lng: Center longitude for location bias.
+            radius_m: Bias radius in meters (max 50000).
+            included_type: Single Table A type filter (e.g. "cafe").
+            open_now: If True, only return places currently open.
+            price_level: Price level filter (0-4), or None for any.
+            max_results: Maximum total venues to return (up to 60).
+
+        Returns:
+            List of VenueCreate schemas.
+        """
+        if radius_m > 50000:
+            raise ValueError("Radius cannot exceed 50000 meters")
+
+        if price_level is not None and (price_level < 0 or price_level > 4):
+            raise ValueError("Price level must be between 0 and 4")
+
+        body = self._build_body(
+            text_query,
+            lat,
+            lng,
+            radius_m,
+            included_type,
+            open_now,
+            price_level,
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": FIELD_MASK,
+        }
+
+        try:
+            return await self._paginated_fetch(body, headers, max_results)
+        except httpx.HTTPStatusError as first_err:
+            if first_err.response.status_code != 400:
+                raise
+
+            # Retry with a stripped-down body (no includedType / priceLevels)
+            logger.warning("Text Search returned 400; retrying without includedType/priceLevels")
+            fallback_body = self._build_body(
+                text_query,
+                lat,
+                lng,
+                radius_m,
+                included_type=None,
+                open_now=open_now,
+                price_level=None,
+            )
+            return await self._paginated_fetch(fallback_body, headers, max_results)
+
+    # ── private helpers ────────────────────────────────────────
+
+    @staticmethod
+    def _build_body(
+        text_query: str,
+        lat: float,
+        lng: float,
+        radius_m: int,
+        included_type: str | None,
+        open_now: bool,
+        price_level: int | None,
+    ) -> dict:
+        body: dict = {
+            "textQuery": text_query,
+            "locationBias": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": float(radius_m),
+                }
+            },
+            "pageSize": 20,
+        }
+
+        if included_type:
+            body["includedType"] = included_type
+        if open_now:
+            body["openNow"] = True
+        if price_level is not None:
+            body["priceLevels"] = [PRICE_INT_TO_API[price_level]]
+
+        return body
+
+    async def _paginated_fetch(
+        self,
+        body: dict,
+        headers: dict,
+        max_results: int,
+    ) -> list[VenueCreate]:
+        venues: list[VenueCreate] = []
+        max_pages = min((max_results + 19) // 20, 3)
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for page in range(max_pages):
+                request_body = dict(body)
+                try:
+                    response = await client.post(
+                        self.TEXT_SEARCH_URL,
+                        json=request_body,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                except httpx.HTTPStatusError as e:
+                    logger.error(
+                        "Google Text Search API error (page %d): %d - %s",
+                        page,
+                        e.response.status_code,
+                        e.response.text,
+                    )
+                    raise
+                except httpx.RequestError as e:
+                    logger.error("Google Text Search API request error: %s", e)
+                    raise
+
+                for place in data.get("places", []):
+                    venue = self._normalize_place(place)
+                    if venue:
+                        venues.append(venue)
+
+                next_token = data.get("nextPageToken")
+                if not next_token or len(venues) >= max_results:
+                    break
+
+                body["pageToken"] = next_token
+
+        venues = venues[:max_results]
+        logger.info(
+            "Text Search returned %d venues across %d page(s)",
+            len(venues),
+            page + 1,
+        )
+        return venues
+
+    # Keep backward-compatible alias for test endpoint
     async def search_nearby(
         self,
         lat: float,
         lng: float,
         radius_m: int = 1000,
         max_results: int = 20,
+        include_types: list[str] | None = None,
         open_now: bool = False,
         price_level: int | None = None,
         rank_preference: str | None = None,
     ) -> list[VenueCreate]:
-        """Search for nearby places using Google Places API.
-
-        Args:
-            lat: Latitude
-            lng: Longitude
-            radius_m: Search radius in meters (max 50000, default 1000)
-            max_results: Maximum number of results (default 20)
-            open_now: Filter for places open now
-            price_level: Filter by price level (0-4)
-            keyword: Optional keyword search
-
-        Returns:
-            List of VenueCreate schemas
-
-        Raises:
-            httpx.HTTPError: If API request fails
-            ValueError: If API key is missing or invalid parameters
-        """
-        if not self.api_key:
-            raise ValueError("Google Places API key is required")
-
-        if radius_m > 50000:
-            raise ValueError("Radius cannot exceed 50000 meters")
-
-        # Prepare request body
-        body = {
-            "includedTypes": [
-                "restaurant",
-                "cafe",
-                "bar",
-                "meal_takeaway",
-                "meal_delivery",
-                "bakery",
-            ],
-            "maxResultCount": min(max_results, 20),  # API limit is 20
-            "locationRestriction": {
-                "circle": {
-                    "center": {"latitude": lat, "longitude": lng},
-                    "radius": float(radius_m),
-                }
-            },
-        }
-
-        # Add optional filters
-        if open_now:
-            body["openNow"] = True
-
-        if price_level is not None:
-            if price_level < 0 or price_level > 4:
-                raise ValueError("Price level must be between 0 and 4")
-            price_map = {
-                0: "PRICE_LEVEL_FREE",
-                1: "PRICE_LEVEL_INEXPENSIVE",
-                2: "PRICE_LEVEL_MODERATE",
-                3: "PRICE_LEVEL_EXPENSIVE",
-                4: "PRICE_LEVEL_VERY_EXPENSIVE",
-            }
-            body["priceLevel"] = price_map[price_level]
-
-        if rank_preference:
-            if rank_preference not in ["DISTANCE", "POPULARITY"]:
-                raise ValueError("rank_preference must be 'DISTANCE' or 'POPULARITY'")
-            body["rankPreference"] = rank_preference
-
-        # Prepare headers
-        headers = {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": self.api_key,
-            "X-Goog-FieldMask": (
-                "places.id,"
-                "places.displayName,"
-                "places.location,"
-                "places.rating,"
-                "places.priceLevel,"
-                "places.types,"
-                "places.formattedAddress,"
-                "places.currentOpeningHours,"
-                "places.regularOpeningHours"
-            ),
-        }
-
-        # Make API request
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    self.BASE_URL,
-                    json=body,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Google Places API error: {e.response.status_code} - {e.response.text}")
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"Google Places API request error: {e}")
-            raise
-
-        # Normalize to VenueCreate schemas
-        venues = []
-        for place in data.get("places", []):
-            venue = self._normalize_place(place)
-            if venue:
-                venues.append(venue)
-
-        logger.info(f"Found {len(venues)} venues from Google Places API")
-        return venues
+        """Legacy wrapper: delegates to text_search for backward compatibility."""
+        text_query = "restaurant"
+        included_type = include_types[0] if include_types else None
+        return await self.text_search(
+            text_query=text_query,
+            lat=lat,
+            lng=lng,
+            radius_m=radius_m,
+            included_type=included_type,
+            open_now=open_now,
+            price_level=price_level,
+            max_results=max_results,
+        )
 
     def _normalize_place(self, place: dict) -> VenueCreate | None:
-        """Normalize Google Places API response to VenueCreate schema.
-
-        Args:
-            place: Place data from Google API
-
-        Returns:
-            VenueCreate instance or None if invalid
-        """
+        """Normalize a Google Places response object to VenueCreate."""
         try:
-            # Extract location
             location = place.get("location", {})
             lat = location.get("latitude")
             lng = location.get("longitude")
@@ -162,47 +234,26 @@ class GooglePlacesClient:
                 logger.warning(f"Place missing location: {place.get('id')}")
                 return None
 
-            # Extract name
             display_name = place.get("displayName", {})
             name = display_name.get("text", "")
             if not name:
                 logger.warning(f"Place missing name: {place.get('id')}")
                 return None
 
-            # Extract categories from types
             types = place.get("types", [])
-            # Filter out generic types and format
-            excluded_types = {
-                "establishment",
-                "point_of_interest",
-                "food",
-                "store",
-            }
-            categories = [t.replace("_", " ").title() for t in types if t not in excluded_types][
-                :5
-            ]  # Limit to 5 categories
+            excluded_types = {"establishment", "point_of_interest", "food", "store"}
+            categories = [t.replace("_", " ").title() for t in types if t not in excluded_types][:5]
 
-            # Map price level from Google format to 0-4 scale
             price_level = None
             price_str = place.get("priceLevel")
             if price_str:
-                price_map = {
-                    "PRICE_LEVEL_FREE": 0,
-                    "PRICE_LEVEL_INEXPENSIVE": 1,
-                    "PRICE_LEVEL_MODERATE": 2,
-                    "PRICE_LEVEL_EXPENSIVE": 3,
-                    "PRICE_LEVEL_VERY_EXPENSIVE": 4,
-                }
-                price_level = price_map.get(price_str)
+                price_level = PRICE_API_TO_INT.get(price_str)
 
-            # Extract hours
             hours = None
             raw_hours = None
-
-            # Try currentOpeningHours first, then regularOpeningHours
             opening_hours = place.get("currentOpeningHours") or place.get("regularOpeningHours")
             if opening_hours:
-                weekday_text = opening_hours.get("weekdayText", [])
+                weekday_text = opening_hours.get("weekdayDescriptions", [])
                 if weekday_text:
                     raw_hours = "\n".join(weekday_text)
                     hours = {

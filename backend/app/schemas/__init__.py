@@ -1,5 +1,11 @@
 """Schemas package exports."""
 
+from app.schemas.recommend import (
+    RecommendMeta,
+    RecommendRequest,
+    RecommendResponse,
+    VenueCard,
+)
 from app.schemas.venue import (
     UserEventCreate,
     UserEventResponse,
@@ -34,4 +40,9 @@ __all__ = [
     "venue_profile_to_response",
     "user_event_to_response",
     "user_event_from_create",
+    # Recommend schemas
+    "RecommendRequest",
+    "RecommendMeta",
+    "VenueCard",
+    "RecommendResponse",
 ]
