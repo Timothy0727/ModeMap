@@ -1,11 +1,14 @@
 """FastAPI application main module."""
 
 import logging
+import time
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
+from app.config import settings
 from app.models.user_event import Mode
 from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResponse, VenueCard
 from app.schemas.venue import VenueCreate
@@ -171,8 +174,32 @@ async def recommend(
 ):
     """Return ranked nearby venues for the given mode and filters."""
     try:
+        cache_key = build_recommend_cache_key(
+            lat=params.lat,
+            lng=params.lng,
+            radius=params.radius,
+            mode=params.mode,
+            open_now=params.open_now,
+            price=params.price,
+        )
+
+        t0 = time.perf_counter()
+        cached = await get_cached_recommend(cache_key)
+        if cached is not None:
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            meta = RecommendMeta(
+                mode=cached.meta.mode,
+                radius=cached.meta.radius,
+                total_results=cached.meta.total_results,
+                returned_results=cached.meta.returned_results,
+                cache_hit=True,
+                time_taken_ms=elapsed_ms,
+            )
+            return RecommendResponse(meta=meta, venues=cached.venues)
+
         from app.providers import GooglePlacesClient
 
+        t0 = time.perf_counter()
         mode_search = MODE_SEARCH.get(params.mode, _DEFAULT_SEARCH)
 
         has_strict_filters = params.price is not None or params.open_now
@@ -199,16 +226,19 @@ async def recommend(
 
         cards = [_venue_create_to_card(v) for v in venues]
         total = len(cards)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
         meta = RecommendMeta(
             mode=params.mode,
             radius=params.radius,
             total_results=total,
             returned_results=total,
-            cache_hit=None,
-            time_taken_ms=None,
+            cache_hit=False,
+            time_taken_ms=elapsed_ms,
         )
-        return RecommendResponse(meta=meta, venues=cards)
+        response = RecommendResponse(meta=meta, venues=cards)
+        await set_cached_recommend(cache_key, response, settings.recommend_cache_ttl_seconds)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except httpx.HTTPStatusError as e:
