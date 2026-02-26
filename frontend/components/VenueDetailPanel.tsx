@@ -46,6 +46,12 @@ function DirectionsLink({ lat, lng, name }: { lat: number; lng: number; name: st
 
 export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPanelProps) {
   const weekdayText = (venue.hours as { weekday_text?: string[] } | null)?.weekday_text;
+  const distanceLabel =
+    venue.distance_m != null
+      ? venue.distance_m < 1000
+        ? `${Math.round(venue.distance_m)} m away`
+        : `${(venue.distance_m / 1000).toFixed(1)} km away`
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,7 +79,7 @@ export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPa
           </h2>
         </div>
 
-        {/* Rating + Price + Open badge */}
+        {/* Rating + Price + Distance + Open badge */}
         <div className="mt-3 flex flex-wrap items-center gap-3">
           {venue.rating !== null && (
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -84,6 +90,9 @@ export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPa
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
               {"$".repeat(venue.price_level)}
             </span>
+          )}
+          {distanceLabel && (
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">{distanceLabel}</span>
           )}
           <OpenBadge hours={venue.hours} />
         </div>

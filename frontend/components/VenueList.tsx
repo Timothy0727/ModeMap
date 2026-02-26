@@ -8,6 +8,14 @@ interface VenueListProps {
 }
 
 export default function VenueList({ venues, onVenueSelect }: VenueListProps) {
+  const formatDistance = (distance_m: number | null): string | null => {
+    if (distance_m == null) return null;
+    if (distance_m < 1000) {
+      return `${Math.round(distance_m)} m`;
+    }
+    return `${(distance_m / 1000).toFixed(1)} km`;
+  };
+
   return (
     <>
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -33,6 +41,9 @@ export default function VenueList({ venues, onVenueSelect }: VenueListProps) {
                   )}
                   {venue.categories.length > 0 && (
                     <span className="ml-2">{venue.categories.slice(0, 2).join(", ")}</span>
+                  )}
+                  {formatDistance(venue.distance_m) && (
+                    <span className="ml-2">{formatDistance(venue.distance_m)}</span>
                   )}
                 </div>
               </div>
