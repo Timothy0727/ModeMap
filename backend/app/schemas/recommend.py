@@ -43,6 +43,7 @@ class VenueCard(BaseModel):
     categories: list[str] = Field(default_factory=list, description="List of category strings")
     lat: float = Field(..., description="Latitude")
     lng: float = Field(..., description="Longitude")
+    distance_m: float | None = Field( None, description="Distance from query location in meters")
     address: str | None = Field(None, description="Full address string")
     rating: float | None = Field(None, ge=0, le=5, description="Rating (0-5 scale)")
     price_level: int | None = Field(None, ge=0, le=4, description="Price level (0-4 scale)")
