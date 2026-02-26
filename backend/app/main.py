@@ -1,6 +1,7 @@
 """FastAPI application main module."""
 
 import logging
+import math
 import time
 
 import httpx
@@ -71,7 +72,23 @@ def _distance_sq(center_lat: float, center_lng: float, lat: float, lng: float) -
     return (lat - center_lat) ** 2 + (lng - center_lng) ** 2
 
 
-def _venue_create_to_card(v: VenueCreate) -> VenueCard:
+def _distance_m(center_lat: float, center_lng: float, lat: float, lng: float) -> float:
+    """Great-circle distance in meters between two lat/lng points."""
+    # Haversine formula
+    radius_earth_m = 6_371_000.0
+    phi1 = math.radians(center_lat)
+    phi2 = math.radians(lat)
+    d_phi = math.radians(lat - center_lat)
+    d_lambda = math.radians(lng - center_lng)
+
+    a = math.sin(d_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
+        d_lambda / 2.0
+    ) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return radius_earth_m * c
+
+
+def _venue_create_to_card(v: VenueCreate, distance_m: float | None = None) -> VenueCard:
     """Convert VenueCreate to VenueCard with stable id and placeholder explanations."""
     return VenueCard(
         id=v.provider_id,
@@ -81,6 +98,7 @@ def _venue_create_to_card(v: VenueCreate) -> VenueCard:
         categories=v.categories,
         lat=v.lat,
         lng=v.lng,
+        distance_m=distance_m,
         address=v.address,
         rating=v.rating,
         price_level=v.price_level,
@@ -225,15 +243,20 @@ async def recommend(
             price_level=params.price,
             max_results=max_results,
         )
+        # Attach real distances and sort by rating then distance.
+        scored: list[tuple[VenueCreate, float]] = []
+        for v in venues:
+            dist_m = _distance_m(params.lat, params.lng, v.lat, v.lng)
+            scored.append((v, dist_m))
 
-        def sort_key(v: VenueCreate) -> tuple:
-            rating = -(v.rating if v.rating is not None else -1)
-            dist_sq = _distance_sq(params.lat, params.lng, v.lat, v.lng)
-            return (rating, dist_sq)
+        def sort_key(item: tuple[VenueCreate, float]) -> tuple:
+            venue, dist_m = item
+            rating = -(venue.rating if venue.rating is not None else -1)
+            return (rating, dist_m)
 
-        venues = sorted(venues, key=sort_key)
+        scored = sorted(scored, key=sort_key)
 
-        cards = [_venue_create_to_card(v) for v in venues]
+        cards = [_venue_create_to_card(v, distance_m=dist_m) for v, dist_m in scored]
         total = len(cards)
         elapsed_ms = int((time.perf_counter() - t0_fetch) * 1000)
 
