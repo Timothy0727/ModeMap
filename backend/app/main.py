@@ -254,12 +254,20 @@ async def recommend(
             price_level=params.price,
             max_results=max_results,
         )
-        # Attach real distances, filter to within radius, then sort by rating then distance.
+        # Attach real distances, filter to within radius, then optionally to open-now only.
         scored: list[tuple[VenueCreate, float]] = []
         for v in venues:
             dist_m = _distance_m(params.lat, params.lng, v.lat, v.lng)
             if dist_m <= params.radius:
                 scored.append((v, dist_m))
+
+        if params.open_now:
+            # When user asked for "open now", drop venues we know are closed.
+            scored = [
+                (v, d)
+                for v, d in scored
+                if v.hours is None or v.hours.get("open_now") is True
+            ]
 
         def sort_key(item: tuple[VenueCreate, float]) -> tuple:
             venue, dist_m = item
