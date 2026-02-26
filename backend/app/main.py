@@ -67,6 +67,16 @@ _DEFAULT_SEARCH = ModeSearch(
 )
 
 
+def _radius_query_suffix(radius_m: int) -> str:
+    """Return a phrase like ' within 2.5 km' or ' within 500 m' for the text query."""
+    if radius_m < 1000:
+        return f" within {radius_m} m"
+    km = radius_m / 1000.0
+    if km == int(km):
+        return f" within {int(km)} km"
+    return f" within {km:.1f} km"
+
+
 def _distance_sq(center_lat: float, center_lng: float, lat: float, lng: float) -> float:
     """Squared distance (proxy for ordering: smaller = closer)."""
     return (lat - center_lat) ** 2 + (lng - center_lng) ** 2
@@ -230,7 +240,8 @@ async def recommend(
         mode_search = MODE_SEARCH.get(params.mode, _DEFAULT_SEARCH)
 
         has_strict_filters = params.price is not None or params.open_now
-        text_query = mode_search.simple_query if has_strict_filters else mode_search.text_query
+        base_query = mode_search.simple_query if has_strict_filters else mode_search.text_query
+        text_query = base_query + _radius_query_suffix(params.radius)
 
         client = GooglePlacesClient()
         venues = await client.text_search(
@@ -243,11 +254,12 @@ async def recommend(
             price_level=params.price,
             max_results=max_results,
         )
-        # Attach real distances and sort by rating then distance.
+        # Attach real distances, filter to within radius, then sort by rating then distance.
         scored: list[tuple[VenueCreate, float]] = []
         for v in venues:
             dist_m = _distance_m(params.lat, params.lng, v.lat, v.lng)
-            scored.append((v, dist_m))
+            if dist_m <= params.radius:
+                scored.append((v, dist_m))
 
         def sort_key(item: tuple[VenueCreate, float]) -> tuple:
             venue, dist_m = item
