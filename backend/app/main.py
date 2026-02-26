@@ -4,7 +4,7 @@ import logging
 import time
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
@@ -169,37 +169,46 @@ async def test_google_places(lat: float = 37.7749, lng: float = -122.4194, radiu
 
 @app.get("/recommend", response_model=RecommendResponse)
 async def recommend(
+    response: Response,
     params: RecommendRequest = Depends(get_recommend_params),
     max_results: int = Query(60, ge=1, le=60, description="Max venues to return"),
+    cache: int = Query(1, ge=0, le=1, description="1=use Redis cache, 0=bypass for benchmarking"),
 ):
     """Return ranked nearby venues for the given mode and filters."""
     try:
-        cache_key = build_recommend_cache_key(
-            lat=params.lat,
-            lng=params.lng,
-            radius=params.radius,
-            mode=params.mode,
-            open_now=params.open_now,
-            price=params.price,
-        )
-
         t0 = time.perf_counter()
-        cached = await get_cached_recommend(cache_key)
-        if cached is not None:
-            elapsed_ms = int((time.perf_counter() - t0) * 1000)
-            meta = RecommendMeta(
-                mode=cached.meta.mode,
-                radius=cached.meta.radius,
-                total_results=cached.meta.total_results,
-                returned_results=cached.meta.returned_results,
-                cache_hit=True,
-                time_taken_ms=elapsed_ms,
+
+        if cache == 0:
+            response.headers["X-Cache"] = "BYPASS"
+            # Skip Redis; go straight to provider and return (no cache write).
+        else:
+            cache_key = build_recommend_cache_key(
+                lat=params.lat,
+                lng=params.lng,
+                radius=params.radius,
+                mode=params.mode,
+                open_now=params.open_now,
+                price=params.price,
             )
-            return RecommendResponse(meta=meta, venues=cached.venues)
+            cached = await get_cached_recommend(cache_key)
+            if cached is not None:
+                response.headers["X-Cache"] = "HIT"
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                meta = RecommendMeta(
+                    mode=cached.meta.mode,
+                    radius=cached.meta.radius,
+                    total_results=cached.meta.total_results,
+                    returned_results=cached.meta.returned_results,
+                    cache_hit=True,
+                    time_taken_ms=elapsed_ms,
+                )
+                response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - t0) * 1000:.2f}"
+                return RecommendResponse(meta=meta, venues=cached.venues)
+            response.headers["X-Cache"] = "MISS"
 
         from app.providers import GooglePlacesClient
 
-        t0 = time.perf_counter()
+        t0_fetch = time.perf_counter()
         mode_search = MODE_SEARCH.get(params.mode, _DEFAULT_SEARCH)
 
         has_strict_filters = params.price is not None or params.open_now
@@ -226,7 +235,7 @@ async def recommend(
 
         cards = [_venue_create_to_card(v) for v in venues]
         total = len(cards)
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        elapsed_ms = int((time.perf_counter() - t0_fetch) * 1000)
 
         meta = RecommendMeta(
             mode=params.mode,
@@ -236,9 +245,11 @@ async def recommend(
             cache_hit=False,
             time_taken_ms=elapsed_ms,
         )
-        response = RecommendResponse(meta=meta, venues=cards)
-        await set_cached_recommend(cache_key, response, settings.recommend_cache_ttl_seconds)
-        return response
+        result = RecommendResponse(meta=meta, venues=cards)
+        if cache == 1:
+            await set_cached_recommend(cache_key, result, settings.recommend_cache_ttl_seconds)
+        response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - t0) * 1000:.2f}"
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except httpx.HTTPStatusError as e:
