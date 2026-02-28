@@ -1,12 +1,16 @@
 """FastAPI application main module."""
 
+import asyncio
 import logging
 import math
 import time
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
 from app.config import settings
@@ -15,6 +19,7 @@ from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResp
 from app.schemas.venue import VenueCreate
 
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 class ModeSearch:
@@ -138,6 +143,8 @@ def get_recommend_params(
 
 
 app = FastAPI(title="ModeMap API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 origins = ["http://localhost", "http://localhost:3000"]
 app.add_middleware(
@@ -196,7 +203,9 @@ async def test_google_places(lat: float = 37.7749, lng: float = -122.4194, radiu
 
 
 @app.get("/recommend", response_model=RecommendResponse)
+@limiter.limit("60/minute")
 async def recommend(
+    request: Request,
     response: Response,
     params: RecommendRequest = Depends(get_recommend_params),
     max_results: int = Query(60, ge=1, le=60, description="Max venues to return"),
@@ -244,16 +253,49 @@ async def recommend(
         text_query = base_query + _radius_query_suffix(params.radius)
 
         client = GooglePlacesClient()
-        venues = await client.text_search(
-            text_query=text_query,
-            lat=params.lat,
-            lng=params.lng,
-            radius_m=params.radius,
-            included_type=mode_search.included_type,
-            open_now=params.open_now,
-            price_level=params.price,
-            max_results=max_results,
-        )
+        max_attempts = 3
+        backoff_seconds = [1.0, 2.0, 4.0]
+        venues_list: list[VenueCreate] = []
+        last_err: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                venues_list = await client.text_search(
+                    text_query=text_query,
+                    lat=params.lat,
+                    lng=params.lng,
+                    radius_m=params.radius,
+                    included_type=mode_search.included_type,
+                    open_now=params.open_now,
+                    price_level=params.price,
+                    max_results=max_results,
+                )
+                break
+            except httpx.HTTPStatusError as e:
+                last_err = e
+                status = e.response.status_code if e.response else 0
+                if attempt < max_attempts - 1 and (status >= 500 or status == 429):
+                    delay = backoff_seconds[attempt]
+                    logger.warning(
+                        "Provider %s (attempt %d/%d), retrying in %.1fs",
+                        status, attempt + 1, max_attempts, delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+            except Exception as e:
+                last_err = e
+                if attempt < max_attempts - 1:
+                    delay = backoff_seconds[attempt]
+                    logger.warning(
+                        "Provider error (attempt %d/%d): %s, retrying in %.1fs",
+                        attempt + 1, max_attempts, e, delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+        if not venues_list and last_err is not None:
+            raise last_err
+        venues = venues_list
         # Attach real distances, filter to within radius, then optionally to open-now only.
         scored: list[tuple[VenueCreate, float]] = []
         for v in venues:
