@@ -255,7 +255,7 @@ async def recommend(
         client = GooglePlacesClient()
         max_attempts = 3
         backoff_seconds = [1.0, 2.0, 4.0]
-        venues_list: list[VenueCreate] = []
+        venues_list: list[VenueCreate] | None = None
         last_err: Exception | None = None
         for attempt in range(max_attempts):
             try:
@@ -277,7 +277,10 @@ async def recommend(
                     delay = backoff_seconds[attempt]
                     logger.warning(
                         "Provider %s (attempt %d/%d), retrying in %.1fs",
-                        status, attempt + 1, max_attempts, delay,
+                        status,
+                        attempt + 1,
+                        max_attempts,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                 else:
@@ -288,14 +291,18 @@ async def recommend(
                     delay = backoff_seconds[attempt]
                     logger.warning(
                         "Provider error (attempt %d/%d): %s, retrying in %.1fs",
-                        attempt + 1, max_attempts, e, delay,
+                        attempt + 1,
+                        max_attempts,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                 else:
                     raise
-        if not venues_list and last_err is not None:
+        if venues_list is None and last_err is not None:
+            # All attempts failed; re-raise the last error.
             raise last_err
-        venues = venues_list
+        venues = venues_list or []
         # Attach real distances, filter to within radius, then optionally to open-now only.
         scored: list[tuple[VenueCreate, float]] = []
         for v in venues:
