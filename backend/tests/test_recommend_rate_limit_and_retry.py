@@ -2,6 +2,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas.recommend import RecommendResponse
 
 
 def _make_recommend_url(**overrides: str) -> str:
@@ -103,9 +104,7 @@ def test_recommend_does_not_retry_on_400(monkeypatch):
                 status_code=400,
                 request=httpx.Request("POST", "https://example.com"),
             )
-            raise httpx.HTTPStatusError(
-                "bad request", request=response.request, response=response
-            )
+            raise httpx.HTTPStatusError("bad request", request=response.request, response=response)
 
     monkeypatch.setattr("app.providers.GooglePlacesClient", BadRequestClient)
     BadRequestClient.calls = 0
@@ -118,3 +117,67 @@ def test_recommend_does_not_retry_on_400(monkeypatch):
     # Only one provider call should have been made; no retries on 400.
     assert BadRequestClient.calls == 1
 
+
+def test_recommend_cache_hit_second_request(monkeypatch):
+    """Integration: first /recommend call misses cache; second call (same params) returns cache_hit=True."""
+
+    app.state.limiter.enabled = False
+
+    from app.schemas.venue import VenueCreate
+
+    # In-memory cache for this test so we don't need Redis.
+    cache_store = {}
+
+    async def mock_get(cache_key: str):
+        data = cache_store.get(cache_key)
+        if data is None:
+            return None
+        return RecommendResponse.model_validate_json(data)
+
+    async def mock_set(cache_key: str, response: RecommendResponse, ttl_seconds: int):
+        cache_store[cache_key] = response.model_dump_json()
+
+    monkeypatch.setattr("app.main.get_cached_recommend", mock_get)
+    monkeypatch.setattr("app.main.set_cached_recommend", mock_set)
+
+    # Mock provider: return one venue so first request has something to cache.
+    one_venue = VenueCreate(
+        provider_id="place_1",
+        provider_name="google",
+        name="Test Cafe",
+        categories=["cafe"],
+        lat=37.7749,
+        lng=-122.4194,
+        address="123 Test St",
+        rating=4.5,
+        price_level=2,
+        hours=None,
+        raw_hours=None,
+    )
+
+    class OneVenueClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def text_search(self, *args, **kwargs):
+            return [one_venue]
+
+    monkeypatch.setattr("app.providers.GooglePlacesClient", OneVenueClient)
+
+    client = TestClient(app)
+    url = _make_recommend_url(cache="1")  # use cache
+
+    # First request: cache miss → provider called → response stored → cache_hit=False.
+    resp1 = client.get(url)
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert data1["meta"]["cache_hit"] is False
+    assert len(data1["venues"]) == 1
+
+    # Second request: same params → cache hit → cache_hit=True, no extra provider call.
+    resp2 = client.get(url)
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["meta"]["cache_hit"] is True
+    assert len(data2["venues"]) == 1
+    assert data2["venues"][0]["name"] == "Test Cafe"
