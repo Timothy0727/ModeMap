@@ -96,9 +96,7 @@ def _distance_m(center_lat: float, center_lng: float, lat: float, lng: float) ->
     d_phi = math.radians(lat - center_lat)
     d_lambda = math.radians(lng - center_lng)
 
-    a = math.sin(d_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
-        d_lambda / 2.0
-    ) ** 2
+    a = math.sin(d_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2.0) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
     return radius_earth_m * c
 
@@ -239,7 +237,9 @@ async def recommend(
                     cache_hit=True,
                     time_taken_ms=elapsed_ms,
                 )
-                response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - t0) * 1000:.2f}"
+                response.headers["Server-Timing"] = (
+                    f"app;dur={(time.perf_counter() - t0) * 1000:.2f}"
+                )
                 return RecommendResponse(meta=meta, venues=cached.venues)
             response.headers["X-Cache"] = "MISS"
 
@@ -313,9 +313,7 @@ async def recommend(
         if params.open_now:
             # When user asked for "open now", drop venues we know are closed.
             scored = [
-                (v, d)
-                for v, d in scored
-                if v.hours is None or v.hours.get("open_now") is True
+                (v, d) for v, d in scored if v.hours is None or v.hours.get("open_now") is True
             ]
 
         def sort_key(item: tuple[VenueCreate, float]) -> tuple:

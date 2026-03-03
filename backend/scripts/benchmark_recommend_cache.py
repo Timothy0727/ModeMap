@@ -115,8 +115,12 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("POOLED (all locations)")
     print("=" * 60)
-    print(f"UNCACHED  n={pool_unc['n']}  median_ms={pool_unc['median_ms']:.1f}  p95_ms={pool_unc['p95_ms']:.1f}  X-Cache: {xcache_uncached}")
-    print(f"CACHED    n={pool_c['n']}  median_ms={pool_c['median_ms']:.1f}  p95_ms={pool_c['p95_ms']:.1f}  X-Cache: {xcache_cached}")
+    print(
+        f"UNCACHED  n={pool_unc['n']}  median_ms={pool_unc['median_ms']:.1f}  p95_ms={pool_unc['p95_ms']:.1f}  X-Cache: {xcache_uncached}"
+    )
+    print(
+        f"CACHED    n={pool_c['n']}  median_ms={pool_c['median_ms']:.1f}  p95_ms={pool_c['p95_ms']:.1f}  X-Cache: {xcache_cached}"
+    )
     print(f"REDUCTION (median): {red_med_pool:.1f}%")
     print(f"REDUCTION (p95):    {red_p95_pool:.1f}%")
 
