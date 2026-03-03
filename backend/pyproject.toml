@@ -23,3 +23,12 @@ indent-style = "space"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+  "cache: cache layer tests (cache key and redis get/set)",
+  "recommend_cache: /recommend caching integration tests",
+  "provider: external provider/client tests (Google Places, etc.)",
+  "schemas: pydantic schema validation and conversions",
+  "smoke: very fast smoke tests",
+  "rate_limit: slowapi rate limiting tests",
+  "retry: provider retry/backoff tests",
+]
