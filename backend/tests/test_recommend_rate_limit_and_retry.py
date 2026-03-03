@@ -1,4 +1,5 @@
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -21,6 +22,7 @@ def _make_recommend_url(**overrides: str) -> str:
     return f"/recommend?{query}"
 
 
+@pytest.mark.rate_limit
 def test_recommend_rate_limit_per_ip(monkeypatch):
     """Rate limiting: more than 60/minute per IP should return 429."""
 
@@ -50,6 +52,7 @@ def test_recommend_rate_limit_per_ip(monkeypatch):
     assert resp.status_code == 429
 
 
+@pytest.mark.retry
 def test_recommend_retries_on_server_error(monkeypatch):
     """Retry/backoff: 5xx errors should be retried with backoff and eventually succeed."""
 
@@ -86,6 +89,7 @@ def test_recommend_retries_on_server_error(monkeypatch):
     assert FlakyClient.calls == 3
 
 
+@pytest.mark.retry
 def test_recommend_does_not_retry_on_400(monkeypatch):
     """Retry/backoff: 400 errors should not be retried (single attempt)."""
 
@@ -118,6 +122,7 @@ def test_recommend_does_not_retry_on_400(monkeypatch):
     assert BadRequestClient.calls == 1
 
 
+@pytest.mark.recommend_cache
 def test_recommend_cache_hit_second_request(monkeypatch):
     """Integration: first /recommend call misses cache; second call (same params) returns cache_hit=True."""
 

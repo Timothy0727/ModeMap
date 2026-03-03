@@ -8,6 +8,8 @@ from app.cache import build_recommend_cache_key, get_cached_recommend, set_cache
 from app.models.user_event import Mode
 from app.schemas.recommend import RecommendMeta, RecommendResponse, VenueCard
 
+pytestmark = pytest.mark.cache
+
 # ─── Cache key unit tests ───────────────────────────────────────────────────
 
 
