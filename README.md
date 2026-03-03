@@ -117,6 +117,19 @@ pip install -r requirements.txt
 pytest -v
 ```
 
+You can also run subsets of tests using markers (configured in `backend/pyproject.toml`):
+
+```bash
+cd backend
+pytest -m provider -v
+pytest -m schemas -v
+pytest -m smoke -v
+pytest -m cache -v
+pytest -m recommend_cache -v
+pytest -m rate_limit -v
+pytest -m retry -v
+```
+
 ---
 
 ## API Reference
