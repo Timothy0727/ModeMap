@@ -75,6 +75,7 @@ export interface RecommendVenue {
     categories: string[];
     lat: number;
     lng: number;
+    distance_m: number | null;
     address: string | null;
     rating: number | null;
     price_level: number | null;

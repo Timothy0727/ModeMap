@@ -20,6 +20,8 @@ from app.schemas.venue import (
     venue_to_response,
 )
 
+pytestmark = pytest.mark.schemas
+
 # ============================================================================
 # VenueCreate Tests
 # ============================================================================

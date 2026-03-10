@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    recommend_cache_ttl_seconds: int = 900  # 15 minutes
 
     # Google Places API
     google_places_api_key: str = ""

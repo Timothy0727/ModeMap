@@ -20,7 +20,11 @@ export default function Home() {
       onClose={presenter.onCloseDetail}
     />
   ) : (
-    <VenueList venues={presenter.venues} onVenueSelect={presenter.onVenueSelect} />
+    <VenueList
+              venues={presenter.venues}
+              onVenueSelect={presenter.onVenueSelect}
+              openNowFilter={presenter.openNow}
+            />
   );
 
   return (

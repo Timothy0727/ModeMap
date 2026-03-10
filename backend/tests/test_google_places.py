@@ -8,6 +8,8 @@ import pytest
 from app.providers.google import GooglePlacesClient
 from app.schemas.venue import VenueCreate
 
+pytestmark = pytest.mark.provider
+
 SAMPLE_PLACE = {
     "id": "ChIJN1t_tDeuEmsRUsoyG83frY4",
     "displayName": {"text": "Blue Bottle Coffee"},
