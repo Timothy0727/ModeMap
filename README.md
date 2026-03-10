@@ -32,7 +32,7 @@ All ranking logic is deterministic and rule-based in early stages.
 - Python 3.11+
 - FastAPI
 - PostgreSQL (with SQLAlchemy async)
-- Redis (configured, caching to be implemented)
+- Redis (cache for /recommend responses; see Step 3)
 - Alembic (database migrations)
 - Docker + Docker Compose
 
@@ -130,6 +130,13 @@ pytest -m rate_limit -v
 pytest -m retry -v
 ```
 
+To measure cache, retry, and rate-limit impact (no Google API key required):
+
+```bash
+cd backend
+python scripts/measure_improvements.py
+```
+
 ---
 
 ## API Reference
@@ -154,6 +161,7 @@ Returns ranked nearby venues for the given mode and filters.
 | `open_now` | bool | no | `false` | Only return venues currently open |
 | `price` | int | no | — | Price level filter (0–4). Omit for any price. |
 | `max_results` | int | no | `60` | Maximum venues to return (1–60) |
+| `cache` | int | no | `1` | `1` = use Redis cache; `0` = bypass (for benchmarking) |
 
 **Example:**
 
@@ -163,6 +171,10 @@ GET /recommend?mode=work&lat=37.7749&lng=-122.4194&radius=2000&open_now=true
 
 **Response shape:**
 
+- `meta.cache_hit`: `true` if the response was served from Redis cache, `false` on cache miss.
+- `meta.time_taken_ms`: Server-side latency in milliseconds.
+- Each venue includes `distance_m`: distance from the query location in meters (Haversine).
+
 ```json
 {
   "meta": {
@@ -170,8 +182,8 @@ GET /recommend?mode=work&lat=37.7749&lng=-122.4194&radius=2000&open_now=true
     "radius": 2000,
     "total_results": 60,
     "returned_results": 60,
-    "cache_hit": null,
-    "time_taken_ms": null
+    "cache_hit": false,
+    "time_taken_ms": 450
   },
   "venues": [
     {
@@ -183,6 +195,7 @@ GET /recommend?mode=work&lat=37.7749&lng=-122.4194&radius=2000&open_now=true
       "lat": 37.7749,
       "lng": -122.4194,
       "address": "66 Mint St, San Francisco, CA",
+      "distance_m": 850.3,
       "rating": 4.5,
       "price_level": 2,
       "hours": { "weekday_text": [...], "open_now": true },
@@ -211,8 +224,9 @@ Debug endpoint for raw Google Places integration.
 .
 ├── backend/
 │   ├── app/
-│   │   ├── main.py               # FastAPI app, /recommend endpoint, mode-to-query mapping
-│   │   ├── config.py             # Pydantic settings
+│   │   ├── main.py               # FastAPI app, /recommend (cache, rate limit, retry), mode-to-query mapping
+│   │   ├── config.py             # Pydantic settings (DB, Redis, cache TTL, Google API key)
+│   │   ├── cache.py              # Redis cache: cache key, get_cached_recommend, set_cached_recommend
 │   │   ├── db/                   # Database setup
 │   │   │   ├── base.py           # SQLAlchemy Base
 │   │   │   └── session.py        # Async session factory
@@ -221,16 +235,20 @@ Debug endpoint for raw Google Places integration.
 │   │   │   └── user_event.py     # UserEvent + Mode/EventType enums
 │   │   ├── schemas/              # Pydantic schemas
 │   │   │   ├── venue.py          # VenueCreate / VenueRead
-│   │   │   └── recommend.py      # RecommendRequest, RecommendResponse, VenueCard, RecommendMeta
+│   │   │   └── recommend.py      # RecommendRequest, RecommendResponse, VenueCard (incl. distance_m), RecommendMeta
 │   │   └── providers/            # External API providers
 │   │       └── google.py         # Google Places Text Search client (paginated, with fallback)
 │   ├── alembic/                  # Database migrations
 │   │   └── versions/
+│   ├── scripts/
+│   │   └── measure_improvements.py  # Measures cache, retry, and rate-limit impact (no real API key needed)
 │   ├── tests/
-│   │   ├── test_google_places.py # Provider + pagination + fallback tests
-│   │   ├── test_schemas.py       # Schema validation tests
-│   │   └── test_smoke.py         # Health endpoint smoke test
-│   ├── pyproject.toml
+│   │   ├── test_cache.py         # Cache key + Redis get/set (marker: cache)
+│   │   ├── test_recommend_rate_limit_and_retry.py  # Rate limit, retry, cache hit (markers: rate_limit, retry, recommend_cache)
+│   │   ├── test_google_places.py # Provider + pagination + fallback (marker: provider)
+│   │   ├── test_schemas.py       # Schema validation (marker: schemas)
+│   │   └── test_smoke.py         # Health endpoint (marker: smoke)
+│   ├── pyproject.toml           # Pytest markers for test subsets
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
@@ -239,9 +257,11 @@ Debug endpoint for raw Google Places integration.
 │   │   ├── page.tsx              # Home page (mode, filters, map, list)
 │   │   └── globals.css           # Global styles
 │   ├── components/
-│   │   ├── Map.tsx               # Mapbox GL map with venue markers
+│   │   ├── Map.tsx               # Mapbox GL map with venue markers (GeoJSON layers)
 │   │   ├── ModeSelector.tsx      # Mode chip selector (Work, Date, Quick Bite, Budget)
-│   │   └── Filters.tsx           # Radius slider, Open Now toggle, Price chips
+│   │   ├── Filters.tsx           # Radius slider, Open Now toggle, Price chips
+│   │   ├── VenueList.tsx         # Ranked list with distance, open/closed badge
+│   │   └── VenueDetailPanel.tsx  # Detail panel for selected venue (rating, price, distance, open status)
 │   ├── lib/
 │   │   └── api.ts                # API client (recommend, searchVenues, healthCheck)
 │   ├── package.json
@@ -291,11 +311,24 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 
 `Map.tsx` stores `initialCenter` and `initialZoom` in `useRef` to prevent the map initialization `useEffect` from re-firing when the parent re-renders. The map is created exactly once on mount (empty dependency array) and data updates flow through a separate `useEffect` that watches `venues`, `selectedVenueId`, and `mapReady`.
 
+### Caching (Step 3)
+
+- **Cache key:** Geohash (precision 6) + radius bucket (500–50000 m) + 15‑minute time bucket + mode + `open_now` + price. Same key → same cached response; radius bucket avoids fragmenting cache for similar radii.
+- **TTL:** 15 minutes (`recommend_cache_ttl_seconds`). Optional bypass with `cache=0` for benchmarking.
+- **Storage:** Full `RecommendResponse` JSON in Redis; get/set on cache hit/miss; errors log and degrade (miss).
+
+### Rate limiting and retry (Step 3)
+
+- **Rate limit:** `slowapi` with `60/minute` per client IP on `/recommend`; responses over limit return 429.
+- **Retry:** Inline loop in the handler: up to 3 attempts on provider 5xx or 429; backoff 1s, 2s, 4s. Client errors (e.g. 400) are not retried. On final failure the handler returns 502.
+
 ---
 
 ## Implementation Progress
 
 ### Step 0 — Project setup + scope lock
+**Delivered:** Monorepo with backend (FastAPI) and frontend (Next.js); Docker Compose for Postgres, Redis, and API; health and hello endpoints; linting (Ruff), formatting, and CI (GitHub Actions).
+
 - [x] MVP modes defined (Work, Date, Quick Bite, Budget)
 - [x] Places + map APIs selected (Google Places, Mapbox)
 - [x] Monorepo initialized
@@ -304,6 +337,8 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 - [x] Linting, testing, and CI configured
 
 ### Step 1 — Core data model + backend skeleton
+**Delivered:** SQLAlchemy models (Venue, VenueProfile, UserEvent) and Alembic migrations; Pydantic request/response schemas; Google Places API (New) client with pagination and fallback; test endpoint and unit tests. Redis and geohash are used for caching in Step 3.
+
 - [x] Database models (Venue, VenueProfile, UserEvent)
 - [x] Alembic migrations configured and initial migration created
 - [x] Pydantic schemas for API request/response
@@ -311,10 +346,11 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 - [x] Test endpoint for provider integration (`/test/google-places`)
 - [x] Unit tests for schemas and provider client
 - [x] SQLAlchemy async session setup
-- [ ] Redis caching (deferred to later steps)
-- [ ] Geohash utilities (deferred to caching implementation)
+- [x] Redis and geohash used for caching (implemented in Step 3)
 
-### Step 2 — MVP UI: Map + list + mode selector (in progress)
+### Step 2 — MVP UI: Map + list + mode selector
+**Delivered:** Next.js app with Mapbox map, ranked venue list, mode chips, and filters (radius, open now, price). Map and list stay in sync; GPU-rendered GeoJSON markers; detail panel for selected venue. Wired to `/recommend` with dummy ranking (rating, then distance).
+
 - [x] Initialize Next.js with TypeScript, Tailwind, App Router
 - [x] Integrate Mapbox GL JS with venue markers and popups
 - [x] `/recommend` endpoint with request/response schemas
@@ -332,9 +368,20 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 - [x] GPU-rendered markers via GeoJSON layers (circle + symbol) for smooth performance
 - [x] Hover popups with venue details (rank, name, rating, price, categories, address)
 - [x] Responsive side-by-side layout (map + list on desktop, stacked on mobile)
-- [ ] Detail panel for selected venue (planned for Step 7)
+- [x] Detail panel for selected venue (name, rating, price, address, distance, open/closed)
 
-### Step 3 — Real nearby retrieval + caching
+### Step 3 — Real nearby retrieval + caching + “Open now”
+**Delivered:** Redis-backed response cache keyed by location (geohash), radius bucket, time bucket, mode, and filters; real distance (Haversine) and radius/open-now filtering; rate limiting (60/min) and retry/backoff for provider errors; tests and a measurement script for cache, retry, and rate-limit behavior.
+
+- [x] **Cache key strategy** — Key includes geohash tile (precision 6), radius bucket (500–50000 m), 15‑minute time bucket, mode, `open_now`, and price. Implemented in `app/cache.py` (`build_recommend_cache_key`).
+- [x] **Redis layer** — `get_cached_recommend` / `set_cached_recommend` with configurable TTL (`recommend_cache_ttl_seconds`, default 15 min). Cache bypass via `cache=0` query param for benchmarking.
+- [x] **Wiring into `/recommend`** — On cache hit return stored response with `meta.cache_hit=true` and `meta.time_taken_ms`; on miss call provider, build response, then store and return with `meta.cache_hit=false`.
+- [x] **Real distance** — Haversine distance from query (lat, lng) to each venue; stored as `distance_m` on each venue card. Venues filtered to `distance_m <= radius`.
+- [x] **“Open now”** — Backend filters to venues where `hours.open_now` is true (or hours missing). Radius phrase in text query (“within X km/m”) and post-filter by distance and open status.
+- [x] **Rate limiting** — `slowapi` with `60/minute` per IP on `/recommend`; 429 when exceeded.
+- [x] **Retry/backoff** — Inline loop: up to 3 attempts for provider 5xx/429; delays 1s, 2s, 4s; 400 not retried. Provider errors surfaced as 502.
+- [x] **Tests** — `tests/test_cache.py` (cache key, Redis get/set roundtrip); `tests/test_recommend_rate_limit_and_retry.py` (rate limit, retry, cache hit on second request). Markers: `cache`, `recommend_cache`, `rate_limit`, `retry`.
+- [x] **Measurement script** — `backend/scripts/measure_improvements.py` measures cache latency (uncached vs cached), retry success rate vs single attempt, and rate-limit 200 vs 429 counts.
 
 ### Step 4 — Baseline ranking per mode
 
