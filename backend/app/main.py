@@ -324,9 +324,7 @@ async def recommend(
         # Mode-specific ranking: score and explanations from app.ranking
         ranked: list[tuple[VenueCreate, float, float, list[str]]] = []
         for v, dist_m in scored:
-            score, explanations = score_and_explain(
-                v, dist_m, params.radius, params.mode
-            )
+            score, explanations = score_and_explain(v, dist_m, params.radius, params.mode)
             ranked.append((v, dist_m, score, explanations))
         ranked.sort(key=lambda x: x[2], reverse=True)
 

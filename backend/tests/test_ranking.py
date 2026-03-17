@@ -1,10 +1,8 @@
 """Unit tests for mode-specific scoring and explanation generation."""
 
-import pytest
-
 from app.models.user_event import Mode
-from app.schemas.venue import VenueCreate
 from app.ranking import score_and_explain
+from app.schemas.venue import VenueCreate
 
 
 def _venue(

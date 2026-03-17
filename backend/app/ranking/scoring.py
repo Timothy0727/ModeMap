@@ -12,7 +12,6 @@ from typing import Any
 from app.models.user_event import Mode
 from app.schemas.venue import VenueCreate
 
-
 # -----------------------------------------------------------------------------
 # Normalized components (0-1, higher = better)
 # -----------------------------------------------------------------------------
@@ -222,16 +221,16 @@ def score_and_explain(
     elif mode == Mode.WORK:
         score, contribs = _score_work(dist_s, open_s, rating_n, distance_m, venue.rating)
     elif mode == Mode.DATE:
-        score, contribs = _score_date(
-            dist_s, rating_n, mid_price, distance_m, venue.rating
-        )
+        score, contribs = _score_date(dist_s, rating_n, mid_price, distance_m, venue.rating)
     elif mode == Mode.BUDGET:
         score, contribs = _score_budget(dist_s, price_low, value_s, distance_m)
     else:
         # Fallback: rating then distance
         score = rating_n * 0.6 + dist_s * 0.4
         contribs = [
-            _FactorContrib(rating_n * 0.6, _fmt_rating(venue.rating) if venue.rating is not None else ""),
+            _FactorContrib(
+                rating_n * 0.6, _fmt_rating(venue.rating) if venue.rating is not None else ""
+            ),
             _FactorContrib(dist_s * 0.4, _fmt_distance(distance_m)),
         ]
 
