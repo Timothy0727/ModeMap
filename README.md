@@ -233,6 +233,7 @@ Debug endpoint for raw Google Places integration.
 │   │   ├── models/               # SQLAlchemy models
 │   │   │   ├── venue.py          # Venue + VenueProfile
 │   │   │   └── user_event.py     # UserEvent + Mode/EventType enums
+│   │   ├── ranking/              # Mode-specific scoring + explanations (Step 4)
 │   │   ├── schemas/              # Pydantic schemas
 │   │   │   ├── venue.py          # VenueCreate / VenueRead
 │   │   │   └── recommend.py      # RecommendRequest, RecommendResponse, VenueCard (incl. distance_m), RecommendMeta
@@ -246,6 +247,7 @@ Debug endpoint for raw Google Places integration.
 │   │   ├── test_cache.py         # Cache key + Redis get/set (marker: cache)
 │   │   ├── test_recommend_rate_limit_and_retry.py  # Rate limit, retry, cache hit (markers: rate_limit, retry, recommend_cache)
 │   │   ├── test_google_places.py # Provider + pagination + fallback (marker: provider)
+│   │   ├── test_ranking.py       # Mode-specific ranking + explanations (Step 4)
 │   │   ├── test_schemas.py       # Schema validation (marker: schemas)
 │   │   └── test_smoke.py         # Health endpoint (marker: smoke)
 │   ├── pyproject.toml           # Pytest markers for test subsets
@@ -301,7 +303,7 @@ If Google returns HTTP 400 (e.g. due to `includedType` + `priceLevels` conflict)
 
 ### Dummy ranking (Step 2)
 
-Current ranking is a simple sort by rating (descending, nulls last) then distance (ascending). Mode-specific scoring functions are planned for Step 4.
+Step 2 started with a simple sort by rating (descending) then distance (ascending). As of **Step 4**, ranking is **mode-specific** (Work/Date/Quick Bite/Budget) and each venue includes 2–3 explanation bullets derived from the scoring factors.
 
 ### GPU-rendered map markers (GeoJSON layers)
 
@@ -384,6 +386,20 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 - [x] **Measurement script** — `backend/scripts/measure_improvements.py` measures cache latency (uncached vs cached), retry success rate vs single attempt, and rate-limit 200 vs 429 counts.
 
 ### Step 4 — Baseline ranking per mode
+
+**Delivered:** Deterministic, rule-based mode scoring (Work/Date/Quick Bite/Budget) with **2–3 “Why this matches”** explanation bullets per venue.
+
+- [x] **Ranking module** — `backend/app/ranking/scoring.py` exports `score_and_explain(venue, distance_m, radius_m, mode) -> (score, explanations)`.
+- [x] **Mode-specific scoring (baseline)** — Uses a weighted sum of normalized factors:
+  - **Quick Bite:** prioritize distance + open_now, then rating, slight price preference
+  - **Work:** prioritize open_now, then distance, then rating (attribute signals come later in Step 7)
+  - **Date:** prioritize rating + distance + mid-range price preference
+  - **Budget:** prioritize low price + “value” (rating × cheapness), then distance
+- [x] **Explanations tied to the score** — Bullets are selected from the top contributing scoring factors (e.g. “Within 450 m”, “Open now”, “Highly rated (4.6)”, “Budget-friendly”, “Great value”, “Mid-range pricing”).
+- [x] **Wired into `/recommend`** — `backend/app/main.py` scores each candidate venue, sorts by score, and includes `explanations` on each `VenueCard`.
+- [x] **Unit tests** — `backend/tests/test_ranking.py` covers deterministic output, mode-specific ordering properties, explanation behavior, and edge cases (missing rating/price/hours).
+
+**Scoring details:** See `backend/app/ranking/README.md` for the exact normalization and per-mode equations.
 
 ### Step 5 — Reviews ingestion + text inference
 
