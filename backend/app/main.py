@@ -15,6 +15,7 @@ from slowapi.util import get_remote_address
 from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
 from app.config import settings
 from app.models.user_event import Mode
+from app.ranking import score_and_explain
 from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResponse, VenueCard
 from app.schemas.venue import VenueCreate
 
@@ -101,8 +102,12 @@ def _distance_m(center_lat: float, center_lng: float, lat: float, lng: float) ->
     return radius_earth_m * c
 
 
-def _venue_create_to_card(v: VenueCreate, distance_m: float | None = None) -> VenueCard:
-    """Convert VenueCreate to VenueCard with stable id and placeholder explanations."""
+def _venue_create_to_card(
+    v: VenueCreate,
+    distance_m: float | None = None,
+    explanations: list[str] | None = None,
+) -> VenueCard:
+    """Convert VenueCreate to VenueCard with stable id and optional explanations."""
     return VenueCard(
         id=v.provider_id,
         provider_id=v.provider_id,
@@ -117,7 +122,7 @@ def _venue_create_to_card(v: VenueCreate, distance_m: float | None = None) -> Ve
         price_level=v.price_level,
         hours=v.hours,
         raw_hours=v.raw_hours,
-        explanations=[],
+        explanations=explanations if explanations is not None else [],
     )
 
 
@@ -316,14 +321,17 @@ async def recommend(
                 (v, d) for v, d in scored if v.hours is None or v.hours.get("open_now") is True
             ]
 
-        def sort_key(item: tuple[VenueCreate, float]) -> tuple:
-            venue, dist_m = item
-            rating = -(venue.rating if venue.rating is not None else -1)
-            return (rating, dist_m)
+        # Mode-specific ranking: score and explanations from app.ranking
+        ranked: list[tuple[VenueCreate, float, float, list[str]]] = []
+        for v, dist_m in scored:
+            score, explanations = score_and_explain(v, dist_m, params.radius, params.mode)
+            ranked.append((v, dist_m, score, explanations))
+        ranked.sort(key=lambda x: x[2], reverse=True)
 
-        scored = sorted(scored, key=sort_key)
-
-        cards = [_venue_create_to_card(v, distance_m=dist_m) for v, dist_m in scored]
+        cards = [
+            _venue_create_to_card(v, distance_m=dist_m, explanations=explanations)
+            for v, dist_m, _score, explanations in ranked[:20]
+        ]
         total = len(cards)
         elapsed_ms = int((time.perf_counter() - t0_fetch) * 1000)
 
