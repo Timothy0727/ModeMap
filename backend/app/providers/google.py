@@ -1,6 +1,7 @@
 """Google Places API client using Text Search (New)."""
 
 import logging
+from dataclasses import dataclass
 
 import httpx
 
@@ -21,6 +22,30 @@ FIELD_MASK = (
     "places.regularOpeningHours,"
     "nextPageToken"
 )
+
+# Field mask for Place Details (single place lookup — no "places." prefix)
+DETAILS_FIELD_MASK = (
+    "id,"
+    "displayName,"
+    "location,"
+    "rating,"
+    "priceLevel,"
+    "types,"
+    "formattedAddress,"
+    "currentOpeningHours,"
+    "regularOpeningHours"
+)
+
+# Field mask for fetching review text and editorial summary only
+REVIEWS_FIELD_MASK = "reviews,editorialSummary"
+
+
+@dataclass
+class ReviewSnippet:
+    """A single text snippet from a venue's reviews or editorial summary."""
+
+    text: str
+    rating: float | None = None
 
 PRICE_INT_TO_API = {
     0: "PRICE_LEVEL_FREE",
@@ -196,6 +221,81 @@ class GooglePlacesClient:
             page + 1,
         )
         return venues
+
+    async def fetch_place_details(self, provider_place_id: str) -> VenueCreate | None:
+        """Fetch basic venue details for a single place by its provider ID.
+
+        Uses the Place Details (New) endpoint:
+          GET https://places.googleapis.com/v1/places/{place_id}
+
+        Args:
+            provider_place_id: The Google Places place ID.
+
+        Returns:
+            VenueCreate schema on success, or None if the place can't be normalized.
+        """
+        url = f"https://places.googleapis.com/v1/places/{provider_place_id}"
+        headers = {
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": DETAILS_FIELD_MASK,
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        return self._normalize_place(data)
+
+    async def fetch_place_reviews(
+        self,
+        provider_place_id: str,
+        max_snippets: int = 10,
+    ) -> list[ReviewSnippet]:
+        """Fetch review snippets and editorial summary for a single place.
+
+        Returns up to ``max_snippets`` short text excerpts suitable for
+        heuristic attribute inference.  The editorial summary (when present)
+        is prepended so it is always considered by the pipeline.
+
+        Args:
+            provider_place_id: The Google Places place ID.
+            max_snippets: Maximum total snippets to return.
+
+        Returns:
+            List of ReviewSnippet objects (may be empty if none are available).
+        """
+        url = f"https://places.googleapis.com/v1/places/{provider_place_id}"
+        headers = {
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": REVIEWS_FIELD_MASK,
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+        snippets: list[ReviewSnippet] = []
+
+        # Editorial summary (one per place, no rating)
+        editorial = data.get("editorialSummary") or {}
+        editorial_text = editorial.get("text", "").strip()
+        if editorial_text:
+            snippets.append(ReviewSnippet(text=editorial_text[:300]))
+
+        # Review texts (up to 5 from Google)
+        for review in data.get("reviews", []):
+            text_obj = review.get("text") or {}
+            text = (text_obj.get("text") or "").strip() if isinstance(text_obj, dict) else ""
+            if not text:
+                continue
+            rating = review.get("rating")
+            snippets.append(ReviewSnippet(text=text[:300], rating=rating))
+            if len(snippets) >= max_snippets:
+                break
+
+        logger.debug(
+            "fetch_place_reviews(%s): %d snippets returned", provider_place_id, len(snippets)
+        )
+        return snippets[:max_snippets]
 
     # Keep backward-compatible alias for test endpoint
     async def search_nearby(

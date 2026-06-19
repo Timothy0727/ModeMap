@@ -12,12 +12,15 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
 from app.config import settings
+from app.db.session import get_db
 from app.models.user_event import Mode
 from app.ranking import score_and_explain
 from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResponse, VenueCard
-from app.schemas.venue import VenueCreate
+from app.schemas.venue import VenueCreate, VenueProfileResponse
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -169,6 +172,38 @@ def health():
 def hello():
     """Hello endpoint."""
     return {"message": "hello"}
+
+
+@app.get("/venues/{provider_id}/profile", response_model=VenueProfileResponse)
+async def get_venue_profile(
+    provider_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Return enriched attribute profile for a venue.
+
+    Triggers heuristic enrichment (reviews → attribute scores + evidence
+    snippets) if the profile is missing or older than the TTL.  Returns
+    immediately when the profile is already fresh.
+
+    Args:
+        provider_id: Google Places place ID (e.g. ``ChIJ...``).
+
+    Returns:
+        VenueProfileResponse with attribute_scores and evidence_snippets.
+    """
+    from app.services.enrichment import enrich_venue_profile
+
+    try:
+        return await enrich_venue_profile(provider_id, session)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text if e.response else str(e)
+        logger.error("Provider error enriching venue %s: %s", provider_id, detail)
+        raise HTTPException(status_code=502, detail=f"Provider error: {detail}") from e
+    except Exception as e:
+        logger.error("Unexpected error enriching venue %s: %s", provider_id, e)
+        raise HTTPException(status_code=500, detail="Enrichment failed") from e
 
 
 @app.get("/test/google-places")
@@ -330,7 +365,7 @@ async def recommend(
 
         cards = [
             _venue_create_to_card(v, distance_m=dist_m, explanations=explanations)
-            for v, dist_m, _score, explanations in ranked[:20]
+            for v, dist_m, _score, explanations in ranked[:max_results]
         ]
         total = len(cards)
         elapsed_ms = int((time.perf_counter() - t0_fetch) * 1000)
