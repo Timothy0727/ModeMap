@@ -98,6 +98,31 @@ export interface RecommendResponse {
     venues: RecommendVenue[]
 }
 
+export interface VenueProfile {
+    id: string;
+    venue_id: string;
+    attribute_scores: Record<string, number>;
+    evidence_snippets: Record<string, string[]>;
+    embedding_ref: string | null;
+    profiled_at: string;
+    expires_at: string | null;
+}
+
+/**
+ * Fetch (and trigger, if stale) the enriched attribute profile for a venue.
+ * Returns null on any error so callers can degrade gracefully.
+ */
+export async function getVenueProfile(providerId: string): Promise<VenueProfile | null> {
+    if (!API_URL) return null;
+    try {
+        const response = await fetch(`${API_URL}/venues/${encodeURIComponent(providerId)}/profile`);
+        if (!response.ok) return null;
+        return (await response.json()) as VenueProfile;
+    } catch {
+        return null;
+    }
+}
+
 export async function recommend(params: RecommendParams): Promise<RecommendResponse> {
     if (!API_URL) {
         throw new Error("API_URL is not defined");

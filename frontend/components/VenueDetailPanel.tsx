@@ -1,6 +1,8 @@
 "use client";
 
-import { type RecommendVenue } from "@/lib/api";
+import { useEffect, useState } from "react";
+
+import { getVenueProfile, type VenueProfile, type RecommendVenue } from "@/lib/api";
 
 interface VenueDetailPanelProps {
   venue: RecommendVenue;
@@ -44,7 +46,63 @@ function DirectionsLink({ lat, lng, name }: { lat: number; lng: number; name: st
   );
 }
 
+/** Display label + icon for each canonical attribute key. */
+const ATTRIBUTE_META: Record<string, { label: string; icon: string }> = {
+  quiet: { label: "Quiet", icon: "🤫" },
+  laptop_friendly: { label: "Laptop-friendly", icon: "💻" },
+  romantic: { label: "Romantic", icon: "✨" },
+  fast_service: { label: "Quick service", icon: "⚡" },
+  value: { label: "Good value", icon: "💰" },
+};
+
+/** Minimum score to display an attribute tag (avoids showing very weak signals). */
+const SCORE_THRESHOLD = 0.4;
+
+function AttributeTags({ profile }: { profile: VenueProfile }) {
+  const visible = Object.entries(profile.attribute_scores)
+    .filter(([, score]) => score >= SCORE_THRESHOLD)
+    .sort(([, a], [, b]) => b - a);
+
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="mt-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        Vibe
+      </h3>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {visible.map(([attr, score]) => {
+          const meta = ATTRIBUTE_META[attr] ?? { label: attr, icon: "•" };
+          const evidence = profile.evidence_snippets[attr]?.[0];
+          return (
+            <div key={attr} className="group relative">
+              <span className="inline-flex cursor-default items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-800">
+                <span>{meta.icon}</span>
+                {meta.label}
+                <span className="ml-0.5 text-blue-400 dark:text-blue-500">
+                  {Math.round(score * 100)}%
+                </span>
+              </span>
+              {evidence && (
+                <div className="pointer-events-none absolute bottom-full left-0 z-10 mb-1.5 hidden w-56 rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-600 shadow-lg group-hover:block dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                  &ldquo;{evidence}&rdquo;
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPanelProps) {
+  const [profile, setProfile] = useState<VenueProfile | null>(null);
+
+  useEffect(() => {
+    getVenueProfile(venue.provider_id).then(setProfile).catch(() => setProfile(null));
+  }, [venue.provider_id]);
+
   const weekdayText = (venue.hours as { weekday_text?: string[] } | null)?.weekday_text;
   const distanceLabel =
     venue.distance_m != null
@@ -142,7 +200,7 @@ export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPa
           </div>
         )}
 
-        {/* Explanations (placeholder for Step 4 mode-specific scoring) */}
+        {/* Explanations from mode-specific scoring (Step 4) */}
         {venue.explanations && venue.explanations.length > 0 && (
           <div className="mt-4">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
@@ -158,6 +216,9 @@ export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPa
             </ul>
           </div>
         )}
+
+        {/* Heuristic attribute tags + evidence (Step 5) */}
+        {profile && <AttributeTags profile={profile} />}
       </div>
     </div>
   );
