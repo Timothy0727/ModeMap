@@ -8,14 +8,12 @@ Tests cover:
 - Edge cases: empty inputs, conflicting signals, all-negative, no signal.
 """
 
-import pytest
 
 from app.text_attributes.heuristics import (
     ATTRIBUTE_RULES,
     EVIDENCE_MAX_CHARS,
     infer_attributes_from_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -100,7 +100,6 @@ export default function VenueDetailPanel({ venue, rank, onClose }: VenueDetailPa
   const [profile, setProfile] = useState<VenueProfile | null>(null);
 
   useEffect(() => {
-    setProfile(null);
     getVenueProfile(venue.provider_id).then(setProfile).catch(() => setProfile(null));
   }, [venue.provider_id]);
 

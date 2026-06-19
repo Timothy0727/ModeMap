@@ -16,8 +16,7 @@ refactoring the core logic.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,7 +91,7 @@ async def enrich_venue_profile(
     )
 
     # Upsert VenueProfile
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = now + timedelta(days=ttl_days)
 
     if venue.profile:
@@ -136,7 +135,7 @@ async def _get_or_create_venue(provider_id: str, session: AsyncSession) -> Venue
     if not venue_create:
         raise ValueError(f"Place not found in provider: {provider_id}")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     venue = Venue(
         provider_id=venue_create.provider_id,
         provider_name=venue_create.provider_name,
@@ -167,5 +166,5 @@ def _is_fresh(profile: VenueProfile | None, ttl_days: int) -> bool:
     if profiled is None:
         return False
     if profiled.tzinfo is None:
-        profiled = profiled.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - profiled) < timedelta(days=ttl_days)
+        profiled = profiled.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - profiled) < timedelta(days=ttl_days)
