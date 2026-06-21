@@ -25,12 +25,10 @@ from sqlalchemy.orm import selectinload
 from app.models.venue import Venue, VenueProfile
 from app.providers.google import GooglePlacesClient
 from app.schemas.venue import VenueProfileResponse
+from app.services.profile_freshness import PROFILE_TTL_DAYS, is_profile_fresh
 from app.text_attributes.heuristics import infer_attributes_from_text
 
 logger = logging.getLogger(__name__)
-
-# Profiles older than this are considered stale and will be re-inferred.
-PROFILE_TTL_DAYS = 7
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +40,8 @@ async def enrich_venue_profile(
     provider_id: str,
     session: AsyncSession,
     ttl_days: int = PROFILE_TTL_DAYS,
+    client: GooglePlacesClient | None = None,
+    force_refresh: bool = False,
 ) -> VenueProfileResponse:
     """Enrich a venue with heuristic attribute scores derived from its reviews.
 
@@ -61,7 +61,8 @@ async def enrich_venue_profile(
         ValueError: If the place cannot be found via the provider API.
         httpx.HTTPStatusError: If the provider API returns an error.
     """
-    venue = await _get_or_create_venue(provider_id, session)
+    places_client = client or GooglePlacesClient()
+    venue = await _get_or_create_venue(provider_id, session, places_client)
 
     # Re-load with profile relationship to avoid lazy-load issues
     result = await session.execute(
@@ -69,15 +70,14 @@ async def enrich_venue_profile(
     )
     venue = result.scalars().one()
 
-    if _is_fresh(venue.profile, ttl_days):
+    if not force_refresh and _is_fresh(venue.profile, ttl_days):
         logger.debug("enrich_venue_profile(%s): profile is fresh, skipping", provider_id)
         return VenueProfileResponse.model_validate(venue.profile)
 
     logger.info("enrich_venue_profile(%s): enriching venue", provider_id)
 
     # Fetch review snippets from provider
-    client = GooglePlacesClient()
-    snippets = await client.fetch_place_reviews(provider_id)
+    snippets = await places_client.fetch_place_reviews(provider_id)
     texts = [s.text for s in snippets]
 
     # Run heuristic text pipeline
@@ -120,17 +120,18 @@ async def enrich_venue_profile(
 # ---------------------------------------------------------------------------
 
 
-async def _get_or_create_venue(provider_id: str, session: AsyncSession) -> Venue:
+async def _get_or_create_venue(
+    provider_id: str,
+    session: AsyncSession,
+    client: GooglePlacesClient,
+) -> Venue:
     """Return an existing Venue or create one from Google Places Details."""
-    result = await session.execute(
-        select(Venue).where(Venue.provider_id == provider_id)
-    )
+    result = await session.execute(select(Venue).where(Venue.provider_id == provider_id))
     venue = result.scalars().first()
     if venue:
         return venue
 
     # Venue is not in DB yet — fetch basic info from Google Places Details
-    client = GooglePlacesClient()
     venue_create = await client.fetch_place_details(provider_id)
     if not venue_create:
         raise ValueError(f"Place not found in provider: {provider_id}")
@@ -160,11 +161,4 @@ async def _get_or_create_venue(provider_id: str, session: AsyncSession) -> Venue
 
 def _is_fresh(profile: VenueProfile | None, ttl_days: int) -> bool:
     """Return True if the profile exists and was profiled within ttl_days."""
-    if profile is None:
-        return False
-    profiled = profile.profiled_at
-    if profiled is None:
-        return False
-    if profiled.tzinfo is None:
-        profiled = profiled.replace(tzinfo=UTC)
-    return (datetime.now(UTC) - profiled) < timedelta(days=ttl_days)
+    return is_profile_fresh(profile, ttl_days)

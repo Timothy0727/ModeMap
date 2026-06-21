@@ -51,8 +51,27 @@ def test_scores_in_range():
 
 def test_all_canonical_attributes_covered():
     """ATTRIBUTE_RULES contains all expected attributes."""
-    expected = {"quiet", "laptop_friendly", "romantic", "fast_service", "value"}
+    expected = {"quiet", "noisy", "laptop_friendly", "romantic", "fast_service", "value"}
     assert set(ATTRIBUTE_RULES.keys()) == expected
+
+
+# ---------------------------------------------------------------------------
+# noisy
+# ---------------------------------------------------------------------------
+
+
+def test_noisy_raises_on_positive_patterns():
+    texts = ["So loud and noisy, very crowded.", "Blasting music and rowdy crowd."]
+    scores, _ = infer_attributes_from_text(texts)
+    assert "noisy" in scores
+    assert scores["noisy"] > 0.4
+
+
+def test_noisy_lowers_on_quiet_patterns():
+    texts = ["Very quiet and peaceful.", "Calm and tranquil atmosphere."]
+    scores, _ = infer_attributes_from_text(texts)
+    assert "noisy" in scores
+    assert scores["noisy"] < 0.4
 
 
 # ---------------------------------------------------------------------------

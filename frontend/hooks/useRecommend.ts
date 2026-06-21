@@ -52,6 +52,9 @@ export function useRecommend() {
   }, [loadRecommend]);
 
   const onVenueSelect = useCallback((venue: RecommendVenue) => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setSelectedVenueId((prev) => {
       const next = prev === venue.id ? null : venue.id;
       if (next) setSnap(0.5);

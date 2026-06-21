@@ -49,6 +49,7 @@ function DirectionsLink({ lat, lng, name }: { lat: number; lng: number; name: st
 /** Display label + icon for each canonical attribute key. */
 const ATTRIBUTE_META: Record<string, { label: string; icon: string }> = {
   quiet: { label: "Quiet", icon: "🤫" },
+  noisy: { label: "Lively", icon: "🔊" },
   laptop_friendly: { label: "Laptop-friendly", icon: "💻" },
   romantic: { label: "Romantic", icon: "✨" },
   fast_service: { label: "Quick service", icon: "⚡" },

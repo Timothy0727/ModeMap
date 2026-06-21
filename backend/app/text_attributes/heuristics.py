@@ -61,6 +61,29 @@ ATTRIBUTE_RULES: dict[str, tuple[list[str], list[str]]] = {
             "deafening",
         ],
     ),
+    "noisy": (
+        [
+            "loud",
+            "noisy",
+            "crowded",
+            "packed",
+            "blasting music",
+            "rowdy",
+            "bustling",
+            "chaotic",
+            "deafening",
+        ],
+        [
+            "quiet",
+            "peaceful",
+            "calm",
+            "tranquil",
+            "serene",
+            "not too loud",
+            "mellow vibe",
+            "low-key",
+        ],
+    ),
     "laptop_friendly": (
         [
             "wifi",

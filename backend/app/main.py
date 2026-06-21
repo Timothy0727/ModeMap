@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import time
+import uuid
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -15,14 +16,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import build_recommend_cache_key, get_cached_recommend, set_cached_recommend
 from app.config import settings
-from app.db.session import get_db
+from app.db.session import AsyncSessionLocal, get_db
+from app.models.job import JobStatus, JobType
 from app.models.user_event import Mode
 from app.ranking import score_and_explain
+from app.schemas.job import JobListResponse, JobResponse, JobSummaryResponse
 from app.schemas.recommend import RecommendMeta, RecommendRequest, RecommendResponse, VenueCard
 from app.schemas.venue import VenueCreate, VenueProfileResponse
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
+
+
+async def _persist_venues_background(venues: list[VenueCreate]) -> None:
+    """Best-effort upsert of recommend results so enrichment can find venues in DB."""
+    try:
+        from app.services.venues import upsert_venues_from_provider
+
+        async with AsyncSessionLocal() as session:
+            await upsert_venues_from_provider(session, venues)
+    except Exception as e:
+        logger.warning("Background venue persist failed: %s", e)
+
+
+async def _schedule_enrichment_background(provider_ids: list[str]) -> None:
+    """Best-effort scheduling of background enrichment jobs for recommend results."""
+    try:
+        from redis.asyncio import Redis
+
+        from app.services.jobs import schedule_enrich_for_provider_ids
+
+        redis = Redis.from_url(settings.celery_broker_url)
+        try:
+            async with AsyncSessionLocal() as session:
+                await schedule_enrich_for_provider_ids(provider_ids, session, redis)
+        finally:
+            await redis.aclose()
+    except Exception as e:
+        logger.warning("Background enrichment schedule failed: %s", e)
+
+
+def _require_admin_api() -> None:
+    """Return 404 when admin endpoints are disabled."""
+    if not settings.admin_api_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 class ModeSearch:
@@ -161,6 +198,21 @@ app.add_middleware(
 )
 
 
+def _provider_error_response(detail: str, provider_status: int) -> HTTPException:
+    """Map Google Places provider failures to actionable API errors."""
+    if provider_status == 403 or "PERMISSION_DENIED" in detail:
+        return HTTPException(
+            status_code=503,
+            detail=(
+                "Google Places API access denied. Enable 'Places API (New)' in Google Cloud "
+                "Console, enable billing, and ensure GOOGLE_PLACES_API_KEY in .env is valid with "
+                "no referrer/IP restrictions blocking server requests. "
+                "See backend/GOOGLE_PLACES_SETUP.md."
+            ),
+        )
+    return HTTPException(status_code=502, detail=f"Provider error: {detail}")
+
+
 @app.get("/health")
 def health():
     """Health check endpoint."""
@@ -190,16 +242,33 @@ async def get_venue_profile(
     Returns:
         VenueProfileResponse with attribute_scores and evidence_snippets.
     """
+    from redis.asyncio import Redis
+
     from app.services.enrichment import enrich_venue_profile
+    from app.services.jobs import profile_is_fresh_for_provider, schedule_enrich_venue
 
     try:
+        if not await profile_is_fresh_for_provider(session, provider_id):
+            try:
+                redis = Redis.from_url(settings.celery_broker_url)
+                try:
+                    await schedule_enrich_venue(provider_id, session, redis)
+                finally:
+                    await redis.aclose()
+            except Exception as schedule_err:
+                logger.warning(
+                    "Background enrichment schedule failed for profile %s: %s",
+                    provider_id,
+                    schedule_err,
+                )
         return await enrich_venue_profile(provider_id, session)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except httpx.HTTPStatusError as e:
         detail = e.response.text if e.response else str(e)
         logger.error("Provider error enriching venue %s: %s", provider_id, detail)
-        raise HTTPException(status_code=502, detail=f"Provider error: {detail}") from e
+        provider_status = e.response.status_code if e.response else 0
+        raise _provider_error_response(detail, provider_status) from e
     except Exception as e:
         logger.error("Unexpected error enriching venue %s: %s", provider_id, e)
         raise HTTPException(status_code=500, detail="Enrichment failed") from e
@@ -342,6 +411,10 @@ async def recommend(
             # All attempts failed; re-raise the last error.
             raise last_err
         venues = venues_list or []
+        if venues:
+            asyncio.create_task(_persist_venues_background(venues))
+            provider_ids = [v.provider_id for v in venues]
+            asyncio.create_task(_schedule_enrichment_background(provider_ids))
         # Attach real distances, filter to within radius, then optionally to open-now only.
         scored: list[tuple[VenueCreate, float]] = []
         for v in venues:
@@ -386,11 +459,61 @@ async def recommend(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except httpx.HTTPStatusError as e:
         detail = e.response.text if e.response else str(e)
+        provider_status = e.response.status_code if e.response else 0
         logger.error("Provider HTTP error in /recommend: %s", detail)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Provider error: {detail}",
-        ) from e
+        raise _provider_error_response(detail, provider_status) from e
     except Exception as e:
         logger.error("Unexpected error in /recommend: %s", e)
         raise HTTPException(status_code=500, detail=f"Error fetching places: {str(e)}") from e
+
+
+@app.get("/admin/jobs/summary", response_model=JobSummaryResponse)
+async def admin_jobs_summary(session: AsyncSession = Depends(get_db)):
+    """Return job counts grouped by status."""
+    _require_admin_api()
+    from app.services.jobs import get_job_summary
+
+    counts = await get_job_summary(session)
+    return JobSummaryResponse(counts=counts, total=sum(counts.values()))
+
+
+@app.get("/admin/jobs", response_model=JobListResponse)
+async def admin_list_jobs(
+    session: AsyncSession = Depends(get_db),
+    status: JobStatus | None = Query(None, description="Filter by job status"),
+    job_type: JobType | None = Query(None, description="Filter by job type"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List background jobs with optional filters."""
+    _require_admin_api()
+    from app.services.jobs import list_jobs
+
+    jobs, total = await list_jobs(
+        session,
+        status=status,
+        job_type=job_type,
+        limit=limit,
+        offset=offset,
+    )
+    return JobListResponse(
+        jobs=[JobResponse.model_validate(job) for job in jobs],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/admin/jobs/{job_id}", response_model=JobResponse)
+async def admin_get_job(
+    job_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    """Return a single background job by ID."""
+    _require_admin_api()
+    from app.services.jobs import get_job_by_id
+
+    job = await get_job_by_id(session, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobResponse.model_validate(job)
