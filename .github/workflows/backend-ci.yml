@@ -8,6 +8,21 @@ jobs:
   backend:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: modemap_test
+          POSTGRES_USER: modemap
+          POSTGRES_PASSWORD: modemap
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U modemap -d modemap_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +42,8 @@ jobs:
           ruff check .
 
       - name: Tests
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://modemap:modemap@localhost:5433/modemap_test
         run: |
           cd backend
           pytest

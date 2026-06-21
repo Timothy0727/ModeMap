@@ -31,11 +31,15 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: modemap-api:latest
+    pull_policy: build
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://modemap:modemap@postgres:5432/modemap
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
       ENV: dev
     ports:
       - "8000:8000"
@@ -47,19 +51,23 @@ services:
       redis:
         condition: service_healthy
     command: >
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8000
-      --reload
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
-  # Optional for now (turn on when you add Celery tasks)
+  # Optional — enable with: docker compose --profile worker up -d (Step 6)
   worker:
+    profiles: ["worker"]
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: modemap-worker:latest
+    pull_policy: build
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+psycopg://modemap:modemap@postgres:5432/modemap
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
       ENV: dev
     volumes:
       - ./backend:/app
@@ -69,7 +77,32 @@ services:
       redis:
         condition: service_healthy
     command: >
-      celery -A app.worker.celery_app worker -l INFO
+      celery -A app.worker.celery_app worker -l INFO -Q enrichment
+
+  beat:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: modemap-beat:latest
+    pull_policy: build
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://modemap:modemap@postgres:5432/modemap
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      ENV: dev
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A app.worker.celery_app beat -l INFO
 
 volumes:
   postgres_data:

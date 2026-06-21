@@ -17,12 +17,11 @@ Instead of returning a generic list of nearby venues, ModeMap lets users choose 
 | **Budget** | Cheap eats, high-value spots | `"affordable restaurant or cheap eats"` |
 
 ### Explicitly Out of Scope (for MVP)
-- Machine learning models
-- Review text inference
+- Machine learning models (Hugging Face classifiers/embeddings — Step 7+)
 - Personalization
-- Async enrichment pipelines
+- Frontend job status dashboard (admin JSON API only for Step 6)
 
-All ranking logic is deterministic and rule-based in early stages.
+Heuristic review-based attribute inference (keyword rules, no ML) is in scope as of **Step 5**. Background Celery enrichment orchestration is in scope as of **Step 6**. All ranking logic remains deterministic and rule-based in early stages.
 
 ---
 
@@ -84,13 +83,26 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 ### 2. Start the backend (Docker)
 
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
-This starts:
+If you previously ran the optional worker (or upgraded from an older compose file), remove stale containers first:
+
+```bash
+docker compose down --remove-orphans
+docker compose up -d --build
+```
+
+This builds the **api** image from `backend/Dockerfile` and starts:
 - **PostgreSQL** on port `5433`
 - **Redis** on port `6379`
 - **FastAPI** on port `8000` (with hot reload)
+
+The **Celery worker** is optional (Step 6) and is not started by default. To include it:
+
+```bash
+docker compose --profile worker up -d --build
+```
 
 Verify the backend is running:
 
@@ -128,6 +140,7 @@ pytest -m cache -v
 pytest -m recommend_cache -v
 pytest -m rate_limit -v
 pytest -m retry -v
+pytest -m enrichment -v
 ```
 
 To measure cache, retry, and rate-limit impact (no Google API key required):
@@ -200,11 +213,45 @@ GET /recommend?mode=work&lat=37.7749&lng=-122.4194&radius=2000&open_now=true
       "price_level": 2,
       "hours": { "weekday_text": [...], "open_now": true },
       "raw_hours": "Monday: 7:00 AM – 6:00 PM\n...",
-      "explanations": []
+      "explanations": ["Within 450 m", "Open now", "Highly rated (4.5)"]
     }
   ]
 }
 ```
+
+### `GET /venues/{provider_id}/profile`
+
+Return (and if needed, compute) heuristic attribute scores for a venue.
+
+**Path parameter:** `provider_id` — Google Places place ID (same as `venues[].provider_id` from `/recommend`).
+
+**Behavior:**
+- On cache miss from `/recommend`, venues are upserted into Postgres in the background.
+- This endpoint fetches review snippets from Google Places, runs keyword heuristics, and upserts a `VenueProfile`.
+- If a profile exists and is younger than the TTL (7 days), returns it without re-fetching reviews.
+
+**Response shape:**
+
+```json
+{
+  "id": "uuid",
+  "venue_id": "uuid",
+  "attribute_scores": {
+    "quiet": 0.67,
+    "laptop_friendly": 0.5,
+    "romantic": 0.33
+  },
+  "evidence_snippets": {
+    "quiet": ["Great spot for studying, very peaceful atmosphere."],
+    "laptop_friendly": ["Reliable wifi and plenty of outlets."]
+  },
+  "embedding_ref": null,
+  "profiled_at": "2026-06-19T12:00:00Z",
+  "expires_at": "2026-06-26T12:00:00Z"
+}
+```
+
+**Canonical attributes:** `quiet`, `noisy`, `laptop_friendly`, `romantic`, `fast_service`, `value` (scores 0–1; omitted when no signal).
 
 ### `GET /test/google-places`
 
@@ -234,11 +281,13 @@ Debug endpoint for raw Google Places integration.
 │   │   │   ├── venue.py          # Venue + VenueProfile
 │   │   │   └── user_event.py     # UserEvent + Mode/EventType enums
 │   │   ├── ranking/              # Mode-specific scoring + explanations (Step 4)
+│   │   ├── text_attributes/      # Keyword heuristics for review inference (Step 5)
+│   │   ├── services/             # Enrichment + venue persistence (Step 5)
 │   │   ├── schemas/              # Pydantic schemas
 │   │   │   ├── venue.py          # VenueCreate / VenueRead
 │   │   │   └── recommend.py      # RecommendRequest, RecommendResponse, VenueCard (incl. distance_m), RecommendMeta
 │   │   └── providers/            # External API providers
-│   │       └── google.py         # Google Places Text Search client (paginated, with fallback)
+│   │       └── google.py         # Google Places Text Search + review/details fetch
 │   ├── alembic/                  # Database migrations
 │   │   └── versions/
 │   ├── scripts/
@@ -248,6 +297,8 @@ Debug endpoint for raw Google Places integration.
 │   │   ├── test_recommend_rate_limit_and_retry.py  # Rate limit, retry, cache hit (markers: rate_limit, retry, recommend_cache)
 │   │   ├── test_google_places.py # Provider + pagination + fallback (marker: provider)
 │   │   ├── test_ranking.py       # Mode-specific ranking + explanations (Step 4)
+│   │   ├── test_text_attributes_heuristics.py  # Review heuristic inference (Step 5)
+│   │   ├── test_enrichment.py    # Profile enrichment + venue upsert (Step 5, marker: enrichment)
 │   │   ├── test_schemas.py       # Schema validation (marker: schemas)
 │   │   └── test_smoke.py         # Health endpoint (marker: smoke)
 │   ├── pyproject.toml           # Pytest markers for test subsets
@@ -403,7 +454,66 @@ The map originally used DOM-based Mapbox markers (one HTML element per venue). T
 
 ### Step 5 — Reviews ingestion + text inference
 
+**Delivered:** Deterministic heuristic enrichment from Google review snippets — no ML. Venues from `/recommend` are persisted to Postgres; profiles are built on demand via the profile endpoint and shown in the detail panel.
+
+- [x] **VenueProfile storage** — Reuses `attribute_scores`, `evidence_snippets`, `profiled_at`, `expires_at` on `venue_profiles` (initial migration).
+- [x] **Review ingestion** — `GooglePlacesClient.fetch_place_reviews()` and `fetch_place_details()` return bounded `ReviewSnippet` texts (reviews + editorial summary, max 10, truncated to 300 chars).
+- [x] **Heuristic pipeline** — `infer_attributes_from_text()` in `backend/app/text_attributes/heuristics.py` scores `quiet`, `noisy`, `laptop_friendly`, `romantic`, `fast_service`, `value` using positive/negative keyword rules.
+- [x] **Enrichment service** — `enrich_venue_profile(provider_id, session)` upserts profiles with 7-day TTL; skips re-inference when fresh.
+- [x] **Venue persistence from `/recommend`** — Background upsert on cache miss via `upsert_venues_from_provider()` so enrichment can find venues without an extra Details call.
+- [x] **Read API** — `GET /venues/{provider_id}/profile` returns `VenueProfileResponse`.
+- [x] **UI** — `VenueDetailPanel` fetches profile and shows “Vibe” tags (score ≥ 40%) with evidence tooltips on hover.
+- [x] **Tests** — `test_text_attributes_heuristics.py` (unit) and `test_enrichment.py` (service-level with mocked provider + Postgres).
+
+**Scoring formula:** `score = pos_count / (pos_count + neg_count + 1)` per attribute. See attribute rules in `backend/app/text_attributes/heuristics.py`.
+
+**Manual test (local):**
+
+```bash
+# 1. Start stack
+docker compose up -d --build
+
+# 2. Run Step 5 tests (requires Postgres on :5433)
+cd backend && python3 -m pytest tests/test_text_attributes_heuristics.py tests/test_enrichment.py -v
+
+# 3. Get a provider_id from /recommend, then fetch profile
+curl -s "http://localhost:8000/recommend?mode=work&lat=37.7749&lng=-122.4194&radius=1000&cache=0" | python3 -c "import sys,json; v=json.load(sys.stdin)['venues'][0]; print(v['provider_id'])"
+curl -s "http://localhost:8000/venues/<provider_id>/profile" | python3 -m json.tool
+```
+
 ### Step 6 — Async jobs + enrichment orchestration
+
+**Delivered:** Celery + Redis background jobs wrap the existing enrichment service. `/recommend` schedules enrichment non-blockingly; job lifecycle is tracked in Postgres with admin visibility.
+
+- [x] **Job model + migration** — `jobs` table with `job_type`, `status`, `attempts`, `idempotency_key`, timestamps; partial unique index on active jobs.
+- [x] **Celery app** — `app/worker/celery_app.py` + `app/worker/tasks.py` with `enrich_venue`, `batch_enrich_area`, `refresh_stale_profiles` tasks.
+- [x] **Job service** — `schedule_enrich_venue()` with Redis enqueue locks, idempotency dedup, fresh-profile skip.
+- [x] **`/recommend` orchestration** — Background scheduling after venue fetch; response unchanged (no profiles on hot path).
+- [x] **Profile endpoint** — Sync enrichment preserved for detail panel UX; also enqueues background job when stale.
+- [x] **Admin API** — `GET /admin/jobs`, `GET /admin/jobs/{id}`, `GET /admin/jobs/summary` (gated by `ADMIN_API_ENABLED`).
+- [x] **Docker worker profile** — `docker compose --profile worker up` starts Celery worker + Beat.
+- [x] **Tests** — `test_jobs.py`, `test_admin_jobs.py`, `test_recommend_enrichment_schedule.py`.
+
+**Manual test (local):**
+
+```bash
+# 1. Start stack with worker
+docker compose --profile worker up -d --build
+
+# 2. Apply migration (if not auto-applied)
+cd backend && alembic upgrade head
+
+# 3. Trigger recommend (schedules jobs)
+curl -s "http://localhost:8000/recommend?mode=work&lat=37.7749&lng=-122.4194&radius=1000&cache=0" > /dev/null
+
+# 4. Check admin
+curl -s "http://localhost:8000/admin/jobs/summary" | python3 -m json.tool
+curl -s "http://localhost:8000/admin/jobs?status=COMPLETED" | python3 -m json.tool
+
+# 5. Profile should be warm on fetch
+curl -s "http://localhost:8000/recommend?mode=work&lat=37.7749&lng=-122.4194&radius=1000&cache=0" | python3 -c "import sys,json; v=json.load(sys.stdin)['venues'][0]; print(v['provider_id'])"
+curl -s "http://localhost:8000/venues/<provider_id>/profile" | python3 -m json.tool
+```
 
 ### Step 7 — Mode-fit ranking + sliders
 

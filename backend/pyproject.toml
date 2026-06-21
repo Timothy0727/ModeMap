@@ -31,4 +31,6 @@ markers = [
   "smoke: very fast smoke tests",
   "rate_limit: slowapi rate limiting tests",
   "retry: provider retry/backoff tests",
+  "enrichment: venue profile enrichment and persistence tests",
+  "jobs: async job scheduling, celery tasks, and admin API tests",
 ]

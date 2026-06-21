@@ -2,6 +2,18 @@ export type Mode = "work" | "date" | "quick_bite" | "budget";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+function formatApiError(status: number, body: string): string {
+    try {
+        const parsed = JSON.parse(body) as { detail?: string };
+        if (typeof parsed.detail === "string" && parsed.detail.length > 0) {
+            return parsed.detail;
+        }
+    } catch {
+        // fall through to generic message
+    }
+    return `API error: ${status}`;
+}
+
 export interface Venue {
     id: string;
     provider_id: string;
@@ -147,7 +159,9 @@ export async function recommend(params: RecommendParams): Promise<RecommendRespo
 
     const response = await fetch(url.toString());
     if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
+        const errBody = await response.text().catch(() => "");
+        const userMessage = formatApiError(response.status, errBody);
+        throw new Error(userMessage);
     }
 
     const data = (await response.json()) as RecommendResponse;
