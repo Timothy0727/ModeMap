@@ -14,13 +14,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class JobType(str, enum.Enum):
+class JobType(enum.StrEnum):
     ENRICH_VENUE = "ENRICH_VENUE"
     BATCH_ENRICH_AREA = "BATCH_ENRICH_AREA"
     REFRESH_VENUE = "REFRESH_VENUE"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
